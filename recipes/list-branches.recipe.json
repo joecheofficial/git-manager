@@ -1,0 +1,22 @@
+{
+  "id": "agent/git-manager/list-branches",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "List branches",
+  "tags": ["git", "branches", "read-only"],
+  "phrases": [
+    "list the branches in this repo",
+    "show every branch",
+    "what branches do I have",
+    "enumerate local branches",
+    "branch inventory for this repo",
+    "git manager list branches"
+  ],
+  "actions": ["read-branches"],
+  "safety": { "destructive": false, "notes": "Runs git branch --format only. No writes." },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./list-branches.js"
+}

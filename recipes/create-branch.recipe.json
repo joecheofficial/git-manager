@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/create-branch",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Create a new line of work",
+  "tags": ["git", "branches", "create"],
+  "phrases": [
+    "create a new branch",
+    "make a new line of work",
+    "start a new feature branch",
+    "create branch",
+    "git manager create branch"
+  ],
+  "actions": ["create-branch"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Validates line of work name and creates and switches to it."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./create-branch.js"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/setup-ignore",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Configure .gitignore safety rules for project",
+  "tags": ["git", "safety", "gitignore", "approval-required"],
+  "phrases": [
+    "setup gitignore",
+    "add gitignore rules",
+    "suggest gitignore entries",
+    "ignore env and media files",
+    "git manager setup ignore"
+  ],
+  "actions": ["setup-ignore"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": true,
+    "dryRunDefault": true,
+    "rule": "Detects project type and suggests safety rules (.env*, node_modules/, large media). Appends rules to .gitignore only when confirm='WRITE' is provided."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./setup-ignore.js"
+}

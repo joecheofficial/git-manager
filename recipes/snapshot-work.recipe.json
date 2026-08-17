@@ -1,0 +1,25 @@
+{
+  "id": "agent/git-manager/snapshot-work",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Snapshot uncommitted work",
+  "tags": ["git", "checkpoint", "autosave", "safe"],
+  "phrases": [
+    "back up my work right now",
+    "snapshot my uncommitted changes",
+    "make sure I don't lose this work",
+    "autosave my repo",
+    "checkpoint my progress silently",
+    "git manager snapshot"
+  ],
+  "actions": ["snapshot-checkpoint-ref"],
+  "safety": {
+    "destructive": false,
+    "rule": "Writes an isolated commit only to refs/allsorted/checkpoints/<branch> through a private index. Never touches the working tree, the shared index, HEAD, or any branch, so it always runs without confirmation."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./snapshot-work.js"
+}

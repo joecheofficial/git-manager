@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/safety-check",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Combined pre-commit safety check (secrets + large files)",
+  "tags": ["git", "safety", "pre-commit", "secrets", "large-files", "read-only"],
+  "phrases": [
+    "run safety check",
+    "pre commit safety check",
+    "is it safe to commit",
+    "check secrets and file sizes",
+    "git manager safety check"
+  ],
+  "actions": ["safety-check"],
+  "safety": {
+    "writes": false,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Performs combined pre-commit safety check, validating both secret credentials and large file thresholds."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./safety-check.js"
+}

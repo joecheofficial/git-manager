@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/publish-repo",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Publish repository to GitHub",
+  "tags": ["git", "github", "publish", "approval-required"],
+  "phrases": [
+    "publish repo to github",
+    "create github repository",
+    "publish repository",
+    "share on github",
+    "git manager publish repo"
+  ],
+  "actions": ["publish-repo"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": true,
+    "dryRunDefault": true,
+    "rule": "Creates a new remote repository on GitHub and pushes initial work after confirmation phrase PUBLISH."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./publish-repo.js"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/backup-status",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Check backup status on GitHub",
+  "tags": ["git", "github", "backup", "status", "read-only"],
+  "phrases": [
+    "is my work backed up",
+    "check backup status",
+    "do I have unsaved backups",
+    "has my work synced to github",
+    "git manager backup status"
+  ],
+  "actions": ["backup-status"],
+  "safety": {
+    "writes": false,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Checks remote backup status in non-technical terms without modifying repository state."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./backup-status.js"
+}

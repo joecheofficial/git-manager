@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/switch-branch",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Switch to a line of work",
+  "tags": ["git", "branches", "switch"],
+  "phrases": [
+    "switch to branch",
+    "change line of work",
+    "checkout branch",
+    "switch branch",
+    "git manager switch branch"
+  ],
+  "actions": ["switch-branch"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Snapshots uncommitted work first, then switches to the target line of work, stashing and reapplying uncommitted files if needed."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./switch-branch.js"
+}

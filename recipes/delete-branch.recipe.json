@@ -1,0 +1,26 @@
+{
+  "id": "agent/git-manager/delete-branch",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Delete a line of work",
+  "tags": ["git", "branches", "delete", "approval-required"],
+  "phrases": [
+    "delete branch",
+    "remove line of work",
+    "delete a branch",
+    "git manager delete branch"
+  ],
+  "actions": ["delete-branch"],
+  "safety": {
+    "writes": true,
+    "destructive": true,
+    "approvalRequired": true,
+    "dryRunDefault": true,
+    "rule": "Requires confirmation DELETE (or DELETE UNMERGED if unmerged). Snapshots first and returns an undo hint to restore the deleted branch."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./delete-branch.js"
+}

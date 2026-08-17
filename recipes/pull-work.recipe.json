@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/pull-work",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Pull latest work from GitHub",
+  "tags": ["git", "github", "pull", "sync"],
+  "phrases": [
+    "pull latest work from github",
+    "update my repo from github",
+    "get latest changes",
+    "sync with github",
+    "git manager pull work"
+  ],
+  "actions": ["pull-work"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Pulls latest changes from GitHub using rebase and autostash."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./pull-work.js"
+}

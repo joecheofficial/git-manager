@@ -1,0 +1,26 @@
+{
+  "id": "agent/git-manager/merge-branch",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Merge a line of work",
+  "tags": ["git", "branches", "merge", "approval-required"],
+  "phrases": [
+    "merge branch",
+    "merge line of work",
+    "combine branch",
+    "git manager merge branch"
+  ],
+  "actions": ["merge-branch"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": true,
+    "dryRunDefault": true,
+    "rule": "Requires confirmation MERGE. Snapshots first. Aborts cleanly on merge conflict to leave working files untouched."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./merge-branch.js"
+}

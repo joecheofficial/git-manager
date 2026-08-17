@@ -1,0 +1,22 @@
+{
+  "id": "agent/git-manager/repo-health",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Check repository health",
+  "tags": ["git", "health", "fsck", "read-only"],
+  "phrases": [
+    "check repo health",
+    "run a git health check",
+    "is this repository corrupted",
+    "verify repo integrity",
+    "check for a detached head or fsck errors",
+    "git manager repo health"
+  ],
+  "actions": ["read-health"],
+  "safety": { "destructive": false, "notes": "Runs git rev-parse and git fsck --no-dangling only. No writes." },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./repo-health.js"
+}

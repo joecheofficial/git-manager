@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/cleanup-branches",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Clean up stale lines of work",
+  "tags": ["git", "branches", "cleanup", "approval-required"],
+  "phrases": [
+    "clean up old branches",
+    "delete merged branches",
+    "remove stale lines of work",
+    "clean up stale branches",
+    "git manager cleanup branches"
+  ],
+  "actions": ["cleanup-branches"],
+  "safety": {
+    "writes": true,
+    "destructive": true,
+    "approvalRequired": true,
+    "dryRunDefault": true,
+    "rule": "Lists stale and merged lines of work and requires explicit confirmation phrase CLEANUP before deleting. Always creates a Tier 1 snapshot first and provides undo hints."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./cleanup-branches.js"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/check-large-files",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Check staged files for size limits before committing",
+  "tags": ["git", "safety", "large-files", "github", "read-only"],
+  "phrases": [
+    "check large files",
+    "are my files too big",
+    "check file size limits",
+    "scan for large video files",
+    "git manager check large files"
+  ],
+  "actions": ["check-large-files"],
+  "safety": {
+    "writes": false,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Checks staged file sizes against GitHub's 50 MB warning threshold and 100 MB hard block limit."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./check-large-files.js"
+}

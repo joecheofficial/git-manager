@@ -1,0 +1,22 @@
+{
+  "id": "agent/git-manager/diff-summary",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Summarize uncommitted changes",
+  "tags": ["git", "diff", "read-only"],
+  "phrases": [
+    "summarize my uncommitted changes",
+    "show a diff summary",
+    "what files changed and by how much",
+    "give me a change size summary",
+    "how much have I edited since the last commit",
+    "git manager diff summary"
+  ],
+  "actions": ["read-diff-stat"],
+  "safety": { "destructive": false, "notes": "Runs git diff --stat only. No writes." },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./diff-summary.js"
+}

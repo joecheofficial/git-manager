@@ -1,0 +1,22 @@
+{
+  "id": "agent/git-manager/repo-status",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Check repository status",
+  "tags": ["git", "status", "read-only"],
+  "phrases": [
+    "check my repo status",
+    "what changed in this repo",
+    "show uncommitted changes",
+    "is my working tree dirty",
+    "what does the working tree look like right now",
+    "git manager status"
+  ],
+  "actions": ["read-status"],
+  "safety": { "destructive": false, "notes": "Runs git status --short --branch only. No writes." },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./repo-status.js"
+}

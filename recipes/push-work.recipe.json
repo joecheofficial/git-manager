@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/push-work",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Push work to GitHub",
+  "tags": ["git", "github", "push", "backup"],
+  "phrases": [
+    "push my work to github",
+    "back up my work",
+    "send my changes to github",
+    "push to github",
+    "git manager push work"
+  ],
+  "actions": ["push-work"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Pushes local work to GitHub remote safely using plain git push, setting upstream on first push."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./push-work.js"
+}

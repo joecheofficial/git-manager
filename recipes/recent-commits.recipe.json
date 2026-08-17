@@ -1,0 +1,22 @@
+{
+  "id": "agent/git-manager/recent-commits",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Show recent commits",
+  "tags": ["git", "log", "read-only"],
+  "phrases": [
+    "show recent commits",
+    "what did I just commit",
+    "list the last few commits",
+    "summarize recent git history",
+    "recap what changed recently",
+    "git manager recent commits"
+  ],
+  "actions": ["read-log"],
+  "safety": { "destructive": false, "notes": "Runs git log --oneline only. No writes." },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./recent-commits.js"
+}

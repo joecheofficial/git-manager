@@ -1,0 +1,27 @@
+{
+  "id": "agent/git-manager/connect-github",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Connect to GitHub account",
+  "tags": ["git", "github", "auth", "connect"],
+  "phrases": [
+    "connect to github",
+    "link my github account",
+    "sign in to github",
+    "authenticate github",
+    "git manager connect github"
+  ],
+  "actions": ["connect-github"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": false,
+    "dryRunDefault": false,
+    "rule": "Authenticates with GitHub CLI and configures Git credentials."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./connect-github.js"
+}

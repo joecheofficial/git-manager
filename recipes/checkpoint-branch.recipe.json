@@ -1,0 +1,28 @@
+{
+  "id": "agent/git-manager/checkpoint-branch",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Checkpoint onto the real branch",
+  "tags": ["git", "checkpoint", "commit", "approval-required"],
+  "phrases": [
+    "turn my snapshot into a real commit",
+    "promote my safe checkpoint to history",
+    "make my autosave a permanent commit",
+    "checkpoint onto my branch now",
+    "commit my checkpoint if the repo is quiet",
+    "git manager checkpoint"
+  ],
+  "actions": ["checkpoint-real-branch"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": true,
+    "dryRunDefault": true,
+    "rule": "Always snapshots to the safe checkpoint ref first, then previews readiness and requires the exact confirmation CHECKPOINT before committing onto the real branch. Refuses when the repo is mid-merge/rebase, index-locked, detached, or still being written within the quiet window."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./checkpoint-branch.js"
+}

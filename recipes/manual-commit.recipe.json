@@ -1,0 +1,28 @@
+{
+  "id": "agent/git-manager/manual-commit",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Commit with a specific message",
+  "tags": ["git", "commit", "approval-required"],
+  "phrases": [
+    "commit these changes with this message",
+    "write a commit with my message",
+    "record this change in git history",
+    "save this as a commit",
+    "commit my staged work",
+    "git manager commit"
+  ],
+  "actions": ["manual-commit"],
+  "safety": {
+    "writes": true,
+    "destructive": false,
+    "approvalRequired": true,
+    "dryRunDefault": true,
+    "rule": "Previews the diff --stat and requires the exact confirmation COMMIT. Also requires the operator's own GIT_MANAGER_ALLOW_COMMIT=true environment flag, and an optional GIT_REMOTE_OWNER match, before writing. Never force-pushes, rewrites history, or touches a branch other than the current one."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./manual-commit.js"
+}

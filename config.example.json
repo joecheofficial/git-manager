@@ -1,0 +1,6 @@
+{
+  "repositoryRoot": "{{REPOSITORY_ROOT}}",
+  "allowedRemoteOwner": "{{GIT_REMOTE_OWNER}}",
+  "readOnly": true,
+  "checkpoint": { "quietMinutes": 10, "maxFileMb": 10 }
+}
