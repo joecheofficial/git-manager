@@ -1,1 +1,13 @@
-{"name":"git-manager-starter","version":"0.1.0","license":"SEE LICENSE IN LICENSE","private":true,"scripts":{"demo":"node src/index.js demo"},"engines":{"node":">=20"}}
+{
+  "name": "git-manager-starter",
+  "version": "0.1.0",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "scripts": {
+    "demo": "node src/index.js demo",
+    "selftest": "node tests/run-tests.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

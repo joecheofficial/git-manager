@@ -60,3 +60,14 @@ Git Manager strictly forbids ONLY:
 * History rewrite: rebase, filter-branch, commit `--amend` on a shared branch, or reflog expiry
 
 All other operations are supported with safe defaults, automated snapshotting, and explicit confirmation requirements. See `BRAIN.md` for the complete operating policy.
+
+## Updates
+
+This updates itself every week from this repo. Before it changes anything it backs up your own files, and if the self-test fails after an update it rolls back to the version you had. Your own files (config, notes, brand files, data) are never overwritten.
+
+```
+node scripts/self-update.js --status   # see the setting and the last check
+node scripts/self-update.js --now      # check and update right now
+node scripts/self-update.js --off      # turn weekly updates off
+node scripts/self-update.js --on       # turn them back on
+```
