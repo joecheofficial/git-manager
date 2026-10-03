@@ -1,0 +1,53 @@
+All Sorted Personal Use License
+
+Copyright (c) 2026 All Sorted. All rights reserved.
+
+In plain language
+
+This copy of All Sorted is yours to use. Install it, run it, change it and
+build on it, for yourself or for your own business. What you may not do is
+pass it on. No selling, no sharing, no publishing, no offering it as a
+service, in whole or in part, changed or unchanged, free or paid. If you
+want commercial or redistribution rights, ask first: contact the distributor
+named in your copy.
+
+Terms
+
+1. Licence. All Sorted grants the licensee a personal, non-exclusive,
+   non-transferable licence to install, run, modify and extend this software
+   (the "Software") for the licensee's own personal use or for the internal
+   use of the licensee's own business.
+
+2. Restrictions. The licensee may not sell, resell, rent, lease, license,
+   sublicense, charge for, share, redistribute, publish, offer as a service,
+   or otherwise make available the Software, any part of it, or any modified
+   version of it, to any third party, whether for free or for payment.
+
+3. Unauthorised copies. Receiving a copy of the Software from anyone other
+   than All Sorted or a source authorised by All Sorted grants no licence of
+   any kind.
+
+4. Third-party components. Components written by others keep their own
+   licences and are not covered by this licence. Where present, they are
+   listed in THIRD-PARTY-NOTICES.md. Bundled fonts are provided under the
+   SIL Open Font License, and bundled npm dependencies remain under their
+   own terms. Nothing in this licence restricts rights granted by those
+   licences.
+
+5. Commercial and redistribution rights. Any use beyond section 1, including
+   commercial distribution, resale or offering the Software as a service,
+   requires prior written permission from All Sorted. Contact All Sorted
+   through the distributor named in your copy.
+
+6. Termination. This licence ends automatically if the licensee breaches
+   any of its terms. On termination the licensee must stop using and delete
+   every copy of the Software in their possession.
+
+7. No warranty. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+8. No liability. IN NO EVENT SHALL ALL SORTED OR ITS CONTRIBUTORS BE LIABLE
+   FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+   CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH
+   THE SOFTWARE OR THE USE OF OR OTHER DEALINGS IN THE SOFTWARE.
