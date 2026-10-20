@@ -6,7 +6,21 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const Module = require("node:module");
+const { execFileSync } = require("node:child_process");
 
+// Hermetic: the recipes resolve the repository from REPOSITORY_ROOT or the
+// private profile in the home folder. A fresh clone has neither, which failed
+// these tests (and so the weekly self-update) on every new machine. Point them
+// at a throwaway repository for this file only and restore the variable after.
+const hermeticRoot = fs.mkdtempSync(path.join(os.tmpdir(), "gm-retirement-recipes-"));
+execFileSync("git", ["init", "-q", hermeticRoot], { stdio: "ignore" });
+const savedRepositoryRoot = process.env.REPOSITORY_ROOT;
+process.env.REPOSITORY_ROOT = hermeticRoot;
+test.after(() => {
+  if (savedRepositoryRoot === undefined) delete process.env.REPOSITORY_ROOT;
+  else process.env.REPOSITORY_ROOT = savedRepositoryRoot;
+  fs.rmSync(hermeticRoot, { recursive: true, force: true });
+});
 
 const origExistsSync = fs.existsSync;
 const origLoad = Module._load;
