@@ -3,10 +3,7 @@
 const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 
-function repoPath(value = process.env.REPOSITORY_ROOT) {
-  if (!value) throw new Error("Set REPOSITORY_ROOT in your environment, then rerun the Git Manager command.");
-  return path.resolve(value);
-}
+const { resolveRepositoryRoot: repoPath } = require("./profile");
 
 function git(repo, args, { env, timeout = 60000 } = {}) {
   return execFileSync("git", ["-C", repo, ...args], {

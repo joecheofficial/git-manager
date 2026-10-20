@@ -11,6 +11,7 @@ module.exports.runRecipe = (input = {}) => {
   } else {
     reply = `WARNING: Found ${result.findings.length} secret credential(s) in staged changes! Commit blocked. Rotation checklist attached.`;
   }
+  if (result.scannerNotice) reply += ` Note: ${result.scannerNotice}`;
   return {
     status: "ok",
     reply,

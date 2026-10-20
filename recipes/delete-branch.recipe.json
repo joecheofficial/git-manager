@@ -3,14 +3,23 @@
   "layer": "agent",
   "owner": "git-manager",
   "title": "Delete a line of work",
-  "tags": ["git", "branches", "delete", "approval-required"],
+  "tags": [
+    "git",
+    "branches",
+    "delete",
+    "approval-required"
+  ],
   "phrases": [
     "delete branch",
     "remove line of work",
     "delete a branch",
-    "git manager delete branch"
+    "git manager delete branch",
+    "remove a finished branch",
+    "clean up this branch"
   ],
-  "actions": ["delete-branch"],
+  "actions": [
+    "delete-branch"
+  ],
   "safety": {
     "writes": true,
     "destructive": true,

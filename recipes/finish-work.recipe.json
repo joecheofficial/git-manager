@@ -1,0 +1,32 @@
+{
+  "id": "agent/git-manager/finish-work",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Finish a git task: merge the branch, remove the worktree and release the claim",
+  "tags": [
+    "git",
+    "worktree",
+    "check-in",
+    "claim"
+  ],
+  "phrases": [
+    "finish my git task",
+    "merge my worktree back",
+    "git manager finish",
+    "I'm done with this branch, merge it",
+    "release my git claim",
+    "close out the worktree and merge"
+  ],
+  "actions": [
+    "finish-work"
+  ],
+  "safety": {
+    "destructive": false,
+    "notes": "Merges with a merge commit only (no rebase, squash or force), refuses on a dirty worktree, wip tip or failing test command, removes the worktree without --force and deletes the branch only with git branch -d."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./finish-work.js"
+}

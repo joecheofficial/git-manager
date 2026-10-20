@@ -2,11 +2,54 @@
 
 const { execFileSync } = require("node:child_process");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 const { snapshotRepo } = require("./checkpoint");
+const { resolveRepositoryRoot: repoPath } = require("./profile");
 
-function repoPath(value = process.env.REPOSITORY_ROOT) {
-  if (!value) throw new Error("Set REPOSITORY_ROOT in your environment, then rerun the Git Manager command.");
-  return path.resolve(value);
+function loadBranchRetirement() {
+  const candidates = [
+    path.join(__dirname, "branch-retirement.js"),
+    path.join(__dirname, "src", "branch-retirement.js"),
+    path.join(__dirname, "..", "src", "branch-retirement.js"),
+    path.join(__dirname, "..", "..", "..", "..", "..", "agents", "git-manager", "src", "branch-retirement.js"),
+    path.join(process.cwd(), "agents", "git-manager", "src", "branch-retirement.js"),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      return require(c);
+    }
+  }
+  throw new Error("Could not locate branch-retirement.js");
+}
+
+const { reportRetirement, applyRetirement, loadProfile } = loadBranchRetirement();
+
+function resolveBackupDir(explicitBackupDir, profilePath, subPrefix, branchName) {
+  if (explicitBackupDir && typeof explicitBackupDir === "string" && explicitBackupDir.trim()) {
+    return { backupDir: explicitBackupDir.trim() };
+  }
+
+  const profile = loadProfile(profilePath);
+  const backupRoot = profile && profile.branchCleanup && profile.branchCleanup.backupRoot;
+
+  if (backupRoot && typeof backupRoot === "string" && path.isAbsolute(backupRoot) && fs.existsSync(backupRoot)) {
+    try {
+      const stat = fs.statSync(backupRoot);
+      if (stat.isDirectory()) {
+        const timestamp = Date.now();
+        const rand = Math.random().toString(36).slice(2);
+        const childName = branchName
+          ? `${subPrefix}-${branchName}-${timestamp}-${rand}`
+          : `${subPrefix}-${timestamp}-${rand}`;
+        return { backupDir: path.join(backupRoot, childName) };
+      }
+    } catch {}
+  }
+
+  return {
+    error: "Backup directory is required. Specify backupDir option or configure an absolute existing branchCleanup.backupRoot in your private profile."
+  };
 }
 
 function git(repo, args, { env, timeout = 60000 } = {}) {
@@ -238,59 +281,127 @@ function switchBranch(name, { root } = {}) {
   }
 }
 
-function deleteBranch(name, { confirm, root } = {}) {
-  const repo = repoPath(root);
+function deleteBranch(name, options = {}) {
+  const opts = typeof options === "string" ? { confirm: options } : (options || {});
+  const repo = repoPath(opts.root);
+
   if (!name || typeof name !== "string") {
     throw new Error("Specify the line of work to delete.");
   }
   const cleanName = name.trim();
-  const curr = currentBranch(repo);
-  const def = defaultBranch(repo);
 
-  if (cleanName === curr) {
-    throw new Error(`Cannot delete line of work "${cleanName}" because it is currently in use. Switch to another line of work first.`);
-  }
-  if (cleanName === def) {
-    throw new Error(`Cannot delete line of work "${cleanName}" because it is the main default line of work.`);
-  }
+  const base = opts.base || defaultBranch(repo);
+  const ownershipReviewed = opts.ownershipReviewed === true;
 
-  const exists = gitOrNull(repo, ["rev-parse", "--verify", `refs/heads/${cleanName}`]);
-  if (!exists) {
-    throw new Error(`Line of work "${cleanName}" does not exist.`);
-  }
+  const report = reportRetirement({
+    repo,
+    base,
+    minAgeDays: opts.minAgeDays,
+    protectedBranches: opts.protectedBranches,
+    activeBranches: opts.activeBranches,
+    profilePath: opts.profilePath,
+    branches: [cleanName],
+    ownershipReviewed,
+    inspectActiveWork: opts.inspectActiveWork,
+    now: opts.now,
+  });
 
-  const lastSha = exists;
-  const isMerged = gitOrNull(repo, ["merge-base", "--is-ancestor", cleanName, def]) !== null || detectSquashMerged(cleanName, repo);
+  const eligibleEntry = report.eligible.find(b => b.branchName === cleanName || b.refName === cleanName || b.refName === `refs/heads/${cleanName}`);
+  const retainedEntry = report.retained.find(b => b.branchName === cleanName || b.refName === cleanName || b.refName === `refs/heads/${cleanName}`);
 
-  if (!isMerged && confirm !== "DELETE UNMERGED") {
+  if (!eligibleEntry || !ownershipReviewed) {
+    const reason = retainedEntry ? retainedEntry.reason : (!ownershipReviewed ? "missing-ownership-review" : "blocked");
+    const lastSha = retainedEntry ? retainedEntry.sha : (eligibleEntry ? eligibleEntry.sha : gitOrNull(repo, ["rev-parse", "--verify", `refs/heads/${cleanName}`]));
+
     return {
-      status: "needs_approval",
-      reply: `Line of work "${cleanName}" contains work that has not been merged into "${def}". Deleting it now would lose that work. Resubmit with confirmation phrase "DELETE UNMERGED" if you are sure you want to delete it.`,
+      status: "blocked",
+      reply: !ownershipReviewed
+        ? `Line of work "${cleanName}" requires operator ownership review (ownershipReviewed: true).`
+        : `Line of work "${cleanName}" contains unmerged or protected work (retained reason: ${reason}). Unmerged work is retained. Integrate and verify it before deleting its branch.`,
+      lastSha,
       isMerged: false,
-      undoHint: `Undo hint: To recreate this line of work later, run: git branch ${cleanName} ${lastSha}`
+      reason,
+      missingEvidence: report.missingEvidence,
     };
   }
 
-  if (confirm !== "DELETE" && confirm !== "DELETE UNMERGED") {
+  const lastSha = eligibleEntry.sha;
+
+  if (opts.confirm !== "DELETE") {
     return {
       status: "needs_approval",
       reply: `Preview only. Ready to delete line of work "${cleanName}". Resubmit with confirmation phrase "DELETE" to proceed.`,
-      isMerged,
+      isMerged: true,
+      lastSha,
       undoHint: `Undo hint: If deleted, you can restore it using: git branch ${cleanName} ${lastSha}`
     };
   }
 
-  const snapshot = snapshotRepo(repo, { message: `Pre-delete snapshot of ${cleanName}` });
+  const backupRes = resolveBackupDir(opts.backupDir, opts.profilePath, "delete", cleanName);
+  if (backupRes.error) {
+    return {
+      status: "blocked",
+      reply: backupRes.error,
+      deletedBranch: null,
+      lastSha,
+    };
+  }
 
-  git(repo, ["branch", "-D", cleanName]);
+  const backupDir = backupRes.backupDir;
+  const parentBackupDir = path.dirname(backupDir);
+  if (!fs.existsSync(parentBackupDir)) {
+    fs.mkdirSync(parentBackupDir, { recursive: true });
+  }
+
+  let applyRes;
+  try {
+    applyRes = applyRetirement({
+      repo,
+      base,
+      backupDir,
+      ownershipReviewed,
+      branches: [cleanName],
+      minAgeDays: opts.minAgeDays,
+      protectedBranches: opts.protectedBranches,
+      activeBranches: opts.activeBranches,
+      profilePath: opts.profilePath,
+      inspectActiveWork: opts.inspectActiveWork,
+      now: opts.now,
+      hooks: opts.hooks,
+    });
+  } catch (err) {
+    return {
+      status: "error",
+      reply: `Deletion failed: ${err.message}`,
+      deletedBranch: null,
+      lastSha,
+      backupDir,
+      error: err.message,
+    };
+  }
+
+  const isRetiredInReport = Array.isArray(applyRes.retired) && applyRes.retired.includes(cleanName);
+  const refStillExists = gitOrNull(repo, ["rev-parse", "--verify", `refs/heads/${cleanName}`]) !== null;
+
+  if (!isRetiredInReport || refStillExists) {
+    return {
+      status: "blocked",
+      reply: `Line of work "${cleanName}" was retained by the final safety recheck.`,
+      deletedBranch: null,
+      lastSha,
+      backupDir,
+      report: applyRes,
+    };
+  }
 
   return {
     status: "ok",
     reply: `Deleted line of work "${cleanName}".`,
     deletedBranch: cleanName,
     lastSha,
+    backupDir,
     undoHint: `Undo hint: To restore this deleted line of work, run: git branch ${cleanName} ${lastSha}`,
-    snapshot
+    report: applyRes
   };
 }
 

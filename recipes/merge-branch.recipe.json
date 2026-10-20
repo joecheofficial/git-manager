@@ -3,14 +3,23 @@
   "layer": "agent",
   "owner": "git-manager",
   "title": "Merge a line of work",
-  "tags": ["git", "branches", "merge", "approval-required"],
+  "tags": [
+    "git",
+    "branches",
+    "merge",
+    "approval-required"
+  ],
   "phrases": [
     "merge branch",
     "merge line of work",
     "combine branch",
-    "git manager merge branch"
+    "git manager merge branch",
+    "merge this work into main",
+    "bring this branch into main"
   ],
-  "actions": ["merge-branch"],
+  "actions": [
+    "merge-branch"
+  ],
   "safety": {
     "writes": true,
     "destructive": false,

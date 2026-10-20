@@ -1,0 +1,33 @@
+{
+  "id": "agent/git-manager/sweep-claims",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Preview the claim sweep: idle, crashed and unclaimed work across your enforced repositories (read-only)",
+  "tags": [
+    "git",
+    "worktree",
+    "check-in",
+    "claim",
+    "read-only"
+  ],
+  "phrases": [
+    "which work claims have gone stale",
+    "preview the claim sweep",
+    "are any task reservations expired or stuck",
+    "git-manager sweep preview",
+    "show claims that would expire",
+    "did anyone commit without checking in first"
+  ],
+  "actions": [
+    "sweep-claims-preview"
+  ],
+  "safety": {
+    "destructive": false,
+    "notes": "Always runs the sweep with readOnly: it reports what would expire, finalize or close and never writes the claims store, worktrees or branches. Run git-manager sweep without --read-only yourself to apply it."
+  },
+  "inputMode": "structured",
+  "requiredContext": [],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./sweep-claims.js"
+}
