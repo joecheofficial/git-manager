@@ -1,0 +1,36 @@
+{
+  "id": "agent/git-manager/start-work",
+  "layer": "agent",
+  "owner": "git-manager",
+  "title": "Check in with git-manager before the first write: health, collisions, worktree, branch and claim",
+  "tags": [
+    "git",
+    "worktree",
+    "check-in",
+    "claim"
+  ],
+  "phrases": [
+    "start work on a repo",
+    "check in with git manager",
+    "set up a worktree for this task",
+    "git manager start",
+    "claim this repo before editing",
+    "get a branch and worktree for my task",
+    "am I clear to start writing in this repo"
+  ],
+  "actions": [
+    "start-work"
+  ],
+  "safety": {
+    "destructive": false,
+    "notes": "Creates a worktree and an owner-prefixed branch and records a claim. Never touches the primary checkout's files, never rebases or deletes."
+  },
+  "inputMode": "structured",
+  "requiredContext": [
+    "repo",
+    "task"
+  ],
+  "outputMode": "text",
+  "fallbackPolicy": "deterministic_first",
+  "handler": "./start-work.js"
+}

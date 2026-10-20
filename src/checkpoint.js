@@ -1,31 +1,20 @@
 "use strict";
 /**
- * Two-tier checkpointing. The point of the split: one tier can never be unsafe,
- * so it never needs permission to run.
+ * Two-tier checkpointing.
  *
- * TIER 1 — snapshot (always safe, every call, any dirty repo)
+ * TIER 1 — snapshot (always, every sweep, every dirty repo)
  *   Builds a commit in an ISOLATED index (GIT_INDEX_FILE) and parks it on
- *   refs/allsorted/checkpoints/<branch>. It does not touch the working tree,
- *   the shared .git/index, HEAD, or any branch. There is nothing for it to
- *   race with and nothing it can clobber, so it can run unconditionally, even
- *   while other tools are mid-write elsewhere in the repo. Each snapshot
- *   carries the previous snapshot as its first parent, so the chain is a
- *   history, not a single overwritable pointer.
+ *   refs/allsorted/checkpoints/<branch>. It does not touch the working tree, the
+ *   shared .git/index, HEAD, or any branch. Snapshots are best effort background
+ *   preservation; explicit cleanup capture is required for staged versions.
+ *   Each snapshot carries the previous snapshot as its first parent indefinitely
+ *   so history is preserved without truncation.
  *
- * TIER 2 — checkpoint commit (only when the repo is provably quiet)
- *   An ordinary add+commit on the real branch, so history stays tidy and
- *   readable. Gated on: no index.lock, no file touched inside the quiet
- *   window, no detached HEAD, no mid-merge/rebase, and HEAD verified
- *   unchanged either side of the commit. If any of that fails it simply
- *   doesn't run. Tier 1 already holds the work either way.
- *
- * Why this shape: nothing here can destroy work. Neither tier ever modifies a
- * file in the working tree. No reset, no checkout, no clean, no stash, no
- * force-push, no branch delete, no history rewrite. Tier 1 sidesteps
- * ownership entirely by never claiming the branch. Tier 2 only claims it when
- * nobody else is plausibly writing to it, and callers still gate the actual
- * write behind an explicit confirmation phrase before this module is asked to
- * run in commit mode.
+ * TIER 2 — checkpoint Repo check (only when the repo is provably quiet)
+ *   Performs a read-only clean check on the repo. If uncommitted work is found and
+ *   preflight checks pass, it returns skipped with explicit verified preservation
+ *   and isolated commit required. Automatic shared-index checkpoint commits are
+ *   retired so it never executes git add, commit, or reset on the shared tree.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -36,8 +25,7 @@ const path = require("node:path");
 const SNAPSHOT_NS = "refs/allsorted/checkpoints";
 const DEFAULT_MAX_FILE_MB = 10;
 const DEFAULT_QUIET_MINUTES = 10;
-// Long enough that any work worth keeping has reached a real commit; short
-// enough that the pack does not grow without bound.
+// Retained for backward compatibility; maxChain is deprecated and ignored.
 const DEFAULT_MAX_CHAIN = 336;
 
 function git(repo, args, { env, timeout = 60000 } = {}) {
@@ -56,7 +44,7 @@ function gitOrNull(repo, args, opts) {
 /**
  * Candidate paths: everything git would consider, NUL-safe (hostile filenames).
  * --no-optional-locks so merely *looking* at the repo never rewrites the shared
- * index's stat cache underneath another process using the same repo.
+ * index's stat cache underneath another agent's git process.
  */
 function changedPaths(repo) {
   const raw = execFileSync("git", ["--no-optional-locks", "-C", repo, "status", "--porcelain=v1", "-z"], {
@@ -177,22 +165,16 @@ function snapshotRepo(repo, { now = Date.now(), message, maxChain = DEFAULT_MAX_
       return { status: "clean", reason: "worktree matches HEAD", oversized };
     }
 
-    // Parents: previous snapshot first (so the chain reads as history), then
-    // the real HEAD, so the snapshot is anchored to the branch it came from.
+    // Parents: previous snapshot first (so the chain reads as history), then the
+    // real HEAD, so the snapshot is anchored to the branch it came from and
+    // stays reachable/diffable against it.
     //
-    // Bounded on purpose: repeated snapshots of a repo with a churning data
-    // file would otherwise grow the pack forever. Past maxChain we re-root
-    // (drop the snapshot parent, keep HEAD), so superseded intermediate
-    // states age out of the object store. The CURRENT state is always
-    // captured; only stale in-between states are let go.
+    // Note: maxChain option is deprecated and ignored; snapshot history is retained
+    // indefinitely without re-rooting.
     const parents = [];
-    let reRooted = false;
+    const reRooted = false;
     if (prev) {
-      const depthArgs = ["rev-list", "--count", prev];
-      if (head) depthArgs.push(`^${head}`);
-      const depth = Number(gitOrNull(repo, depthArgs) || 0);
-      if (depth >= maxChain) reRooted = true;
-      else parents.push("-p", prev);
+      parents.push("-p", prev);
     }
     if (head && head !== prev) parents.push("-p", head);
 
@@ -214,22 +196,19 @@ function snapshotRepo(repo, { now = Date.now(), message, maxChain = DEFAULT_MAX_
   }
 }
 
-// ──────────────────────────────────────────────── TIER 2: real branch commit
+// ──────────────────────────────────────────────── TIER 2: read-only clean check
 
 /**
- * Commit uncommitted work onto the real branch, but only when the repo is
- * demonstrably idle. Every gate below is a refusal to act, never a mutation;
- * failing them costs nothing because Tier 1 already holds the work.
- *
- * Pass `dryRun: true` to run every gate and report what WOULD happen without
- * staging or committing anything. Callers use this to build a confirmation
- * preview before asking a human to approve the real write.
+ * Perform a read-only clean check on the repo. Automatic shared-index checkpoint
+ * commits are retired: if uncommitted work exists and preflight checks pass, it
+ * returns status "skipped" requiring explicit verified preservation and isolated
+ * commit rather than mutating the shared working tree or index.
  */
 function checkpointRepo(repo, {
   now = Date.now(),
   quietMinutes = DEFAULT_QUIET_MINUTES,
+  inspectActiveWork = null,
   message,
-  dryRun = false,
 } = {}) {
   const skip = (reason, extra) => ({ status: "skipped", reason, ...extra });
 
@@ -252,34 +231,14 @@ function checkpointRepo(repo, {
   const quietFor = minutesSinceLastWrite(repo, take, now);
   if (quietFor < quietMinutes) return skip(`still being written (${quietFor.toFixed(1)}m < ${quietMinutes}m quiet window)`, { oversized });
 
-  if (dryRun) return { status: "ready", branch, paths: take.length, oversized, quietFor };
-
-  const before = gitOrNull(repo, ["rev-parse", "HEAD"]);
-  const pathspec = writePathspec(take);
-  try {
-    try {
-      git(repo, ["add", "--all", "--ignore-errors", `--pathspec-from-file=${pathspec}`, "--pathspec-file-nul"]);
-    } catch { /* ignored paths refused; commit what staged */ }
-
-    const staged = gitOrNull(repo, ["diff", "--cached", "--name-only"]);
-    if (!staged) return skip("nothing staged after ignore rules", { oversized });
-
-    // HEAD must not have moved while we staged.
-    if (gitOrNull(repo, ["rev-parse", "HEAD"]) !== before) {
-      gitOrNull(repo, ["reset", "--mixed"]); // unstage only; working tree untouched
-      return skip("HEAD moved while staging", { oversized });
-    }
-
-    const stamp = new Date(now).toISOString().replace("T", " ").slice(0, 19);
-    const text = message || `chore(checkpoint): ${stamp} UTC`;
-    git(repo, ["commit", "--no-verify", "-m", text, `--pathspec-from-file=${pathspec}`, "--pathspec-file-nul"]);
-
-    const after = gitOrNull(repo, ["rev-parse", "HEAD"]);
-    if (!after || after === before) return skip("commit produced no new HEAD", { oversized });
-    return { status: "committed", sha: after, branch, paths: staged.split("\n").length, oversized };
-  } finally {
-    fs.rmSync(pathspec, { force: true });
+  if (inspectActiveWork) {
+    let active;
+    try { active = inspectActiveWork(repo); }
+    catch (e) { return skip(`active-work detector failed: ${e.message}`, { oversized }); } // fail closed
+    if (!active || active.protected) return skip(`live writer: ${(active?.reasons || ["detector returned nothing"]).join(", ")}`, { oversized });
   }
+
+  return skip("explicit verified preservation and isolated commit required", { oversized });
 }
 
 module.exports = {

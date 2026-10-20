@@ -1,0 +1,18 @@
+{
+  "checkin": {
+    "claimsFile": "data/claims.json",
+    "worktreeRoot": "~/.config/allsorted/worktrees",
+    "staleClaimHours": 8,
+    "recentCommitHours": 3,
+    "unclaimedWindowHours": 2,
+    "fullCheckoutCeilingMiB": 256,
+    "automationSubjects": [
+      "^chore: checkpoint",
+      "^chore\\(autosave\\)",
+      "^Merge branch '[^']+' of ",
+      "^snapshot"
+    ],
+    "enforcedRepos": [],
+    "ownerSessions": []
+  }
+}

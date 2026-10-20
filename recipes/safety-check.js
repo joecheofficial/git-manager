@@ -12,6 +12,7 @@ module.exports.runRecipe = (input = {}) => {
   } else {
     reply = `WARNING: Pre-commit safety check passed with ${result.warnings.length} warning(s).`;
   }
+  if (result.scannerNotice) reply += ` Note: ${result.scannerNotice}`;
   return {
     status: "ok",
     reply,

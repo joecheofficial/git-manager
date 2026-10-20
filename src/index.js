@@ -33,10 +33,7 @@ const {
   preCommitCheck,
 } = require("./safety");
 
-function repoPath(value = process.env.REPOSITORY_ROOT) {
-  if (!value) throw new Error("Set REPOSITORY_ROOT in your private environment, then rerun the Git Manager command.");
-  return path.resolve(value);
-}
+const { resolveRepositoryRoot: repoPath } = require("./profile");
 
 function git(args, root) {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -98,38 +95,9 @@ function snapshotWork(input = {}, root = repoPath()) {
   return snapshotRepo(root, { message: input.message });
 }
 
-/**
- * Tier 2: an ordinary commit onto the real branch, but only when the repo is
- * provably quiet. Tier 1 runs first unconditionally so the work is held
- * either way. The real commit itself is preview-first: without the exact
- * confirmation phrase this reports readiness and does not write.
- *
- * Gated by preCommitCheck: refuses the checkpoint commit if blockers exist.
- */
+/** Read-only checkpoint inspection. Explicit cleanup handles preservation. */
 function checkpointWork(input = {}, root = repoPath()) {
-  const snapshot = snapshotRepo(root, { message: input.snapshotMessage });
-  const preview = checkpointRepo(root, { quietMinutes: input.quietMinutes, dryRun: true });
-  if (preview.status !== "ready") return { status: "ok", snapshot, checkpoint: preview };
-  if (input.confirm !== "CHECKPOINT") {
-    return {
-      status: "needs_approval",
-      reply: `Preview only. Tier 1 snapshot already holds the work. ${preview.paths} path(s) on branch ${preview.branch} are quiet and ready for a real commit. Resubmit with confirmation: CHECKPOINT`,
-      metadata: { snapshot, preview },
-    };
-  }
-  const check = preCommitCheck({ repositoryRoot: root });
-  if (!check.safe && check.blockers && check.blockers.length > 0) {
-    return {
-      status: "blocked",
-      reply: `Checkpoint refused: pre-commit safety check found ${check.blockers.length} blocker(s) (secret credentials or oversized files).`,
-      snapshot,
-      checkpoint: { status: "blocked", blockers: check.blockers },
-      blockers: check.blockers,
-      warnings: check.warnings,
-    };
-  }
-  const committed = checkpointRepo(root, { quietMinutes: input.quietMinutes, message: input.message });
-  return { status: "ok", snapshot, checkpoint: committed };
+  return { status: "ok", checkpoint: checkpointRepo(root, { quietMinutes: input.quietMinutes }) };
 }
 
 async function runRecipe(action, input = {}) {
@@ -153,19 +121,19 @@ async function runRecipe(action, input = {}) {
     "manual-commit": () => safeCommit(input, root),
 
     // New actions from the 14 new recipes
-    "backup-status": () => require("./recipes/backup-status").runRecipe(input),
-    "check-large-files": () => require("./recipes/check-large-files").runRecipe(input),
-    "cleanup-branches": () => require("./recipes/cleanup-branches").runRecipe(input),
+    "backup-status": () => require("../recipes/backup-status").runRecipe(input),
+    "check-large-files": () => require("../recipes/check-large-files").runRecipe(input),
+    "cleanup-branches": () => require("../recipes/cleanup-branches").runRecipe(input),
     "connect-github": () => connectGitHub(input),
     "create-branch": () => createBranch(input.name, { root }),
     "delete-branch": () => deleteBranch(input.name, { confirm: input.confirm, root }),
     "merge-branch": () => mergeBranch(input.name, { confirm: input.confirm, root }),
-    "publish-repo": () => require("./recipes/publish-repo").runRecipe(input),
+    "publish-repo": () => require("../recipes/publish-repo").runRecipe(input),
     "pull-work": () => pullWork(input, root),
     "push-work": () => pushWork(input, root),
-    "safety-check": () => require("./recipes/safety-check").runRecipe(input),
-    "scan-secrets": () => require("./recipes/scan-secrets").runRecipe(input),
-    "setup-ignore": () => require("./recipes/setup-ignore").runRecipe(input),
+    "safety-check": () => require("../recipes/safety-check").runRecipe(input),
+    "scan-secrets": () => require("../recipes/scan-secrets").runRecipe(input),
+    "setup-ignore": () => require("../recipes/setup-ignore").runRecipe(input),
     "switch-branch": () => switchBranch(input.name, { root }),
   };
   if (!actions[action]) throw new Error(`Unknown recipe action: ${action}`);

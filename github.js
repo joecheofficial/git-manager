@@ -3,10 +3,7 @@
 const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 
-function repoPath(value = process.env.REPOSITORY_ROOT) {
-  if (!value) throw new Error("Set REPOSITORY_ROOT in your environment, then rerun the Git Manager command.");
-  return path.resolve(value);
-}
+const { resolveRepositoryRoot: repoPath } = require("./profile");
 
 function git(repo, args, { env, timeout = 60000 } = {}) {
   return execFileSync("git", ["-C", repo, ...args], {
@@ -128,6 +125,18 @@ function connectGitHub() {
 function publishRepo(input = {}, rootOverride) {
   const root = repoPath(input.repositoryRoot || input.root || rootOverride);
 
+  // The request itself is checked first, so a missing name or visibility is
+  // reported the same way on every machine, signed in to GitHub or not.
+  const name = String(input.name || "").trim();
+  if (!name) {
+    throw new Error("Repository name is required.");
+  }
+
+  const visibility = input.visibility;
+  if (visibility !== "public" && visibility !== "private") {
+    throw new Error("Visibility must be explicitly set to either 'public' or 'private' with no default.");
+  }
+
   const isGit = gitOrNull(root, ["rev-parse", "--is-inside-work-tree"]) === "true";
   if (!isGit) {
     throw new Error("This directory is not a Git repository. Please initialize a Git repository before publishing.");
@@ -141,16 +150,6 @@ function publishRepo(input = {}, rootOverride) {
   const auth = ghAuthStatus();
   if (!auth.authenticated) {
     throw new Error("You are not logged in to GitHub. Please sign in to GitHub first using connect-github.");
-  }
-
-  const name = String(input.name || "").trim();
-  if (!name) {
-    throw new Error("Repository name is required.");
-  }
-
-  const visibility = input.visibility;
-  if (visibility !== "public" && visibility !== "private") {
-    throw new Error("Visibility must be explicitly set to either 'public' or 'private' with no default.");
   }
 
   const args = ["repo", "create", name, `--${visibility}`, "--source=.", "--remote=origin", "--push"];

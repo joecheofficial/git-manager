@@ -1,6 +1,17 @@
 {
   "repositoryRoot": "{{REPOSITORY_ROOT}}",
-  "allowedRemoteOwner": "{{GIT_REMOTE_OWNER}}",
-  "readOnly": true,
-  "checkpoint": { "quietMinutes": 10, "maxFileMb": 10 }
+  "branchCleanup": {
+    "baseRef": "refs/heads/main",
+    "minAgeDays": 30,
+    "protectedBranches": [
+      "main",
+      "master",
+      "develop",
+      "release/*",
+      "recovery/*",
+      "*preserve*"
+    ],
+    "activeBranches": [],
+    "backupRoot": "/absolute/path/to/backups"
+  }
 }

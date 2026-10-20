@@ -1,0 +1,46 @@
+{
+  "version": "3.3.0",
+  "agentId": "git-manager",
+  "loopBoundary": "Read-only repository health, triage, and checkpoint previews. Commit, push, merge, history, branch, secret, permission, and alert-state mutations always remain approval-gated.",
+  "autonomousActions": [
+    "read-only repository health and status checks",
+    "read-only multi-repo health inspection",
+    "preview checkpoint and push plans without writing",
+    "read-only branch and pull-request triage",
+    "read-only security-alert triage",
+    "draft repository safety recommendations"
+  ],
+  "approvalRequiredActions": [
+    "create or amend any commit",
+    "push to any remote",
+    "merge a branch or pull request",
+    "history rewrite, reset, rebase, or force push",
+    "branch deletion or tag deletion",
+    "secret rotation or credential changes",
+    "permission changes or repository settings changes",
+    "dismiss, resolve, or mutate security alerts"
+  ],
+  "reflectionQuestions": [
+    {
+      "id": "triage",
+      "prompt": "Are the triaged items accurately assessed?"
+    },
+    {
+      "id": "recommendations",
+      "prompt": "Are the recommendations and previewed save actions safe and effective?"
+    },
+    {
+      "id": "security",
+      "prompt": "Have all security alerts and remote-write risks been thoroughly checked?"
+    },
+    {
+      "id": "stale_work",
+      "prompt": "Which repeated repository-health task can be made deterministic without adding write authority?"
+    },
+    {
+      "id": "compatibility",
+      "prompt": "Can any remaining Git Guardian compatibility surface be removed without breaking callers?"
+    }
+  ],
+  "lastAutonomizerUpdate": "2026-09-20T04:45:00.000Z"
+}

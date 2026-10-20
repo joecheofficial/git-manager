@@ -5,17 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 
-function repoPath(value = process.env.REPOSITORY_ROOT) {
-  if (value) return path.resolve(value);
-  try {
-    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    }).trim();
-  } catch {
-    return process.cwd();
-  }
-}
+const { resolveRepositoryRoot: repoPath } = require("./profile");
 
 function redactSecret(str) {
   if (!str || typeof str !== "string") return "[REDACTED]";
@@ -69,11 +59,30 @@ function hasGitleaks() {
   }
 }
 
+// The built-in scanner is a fallback, never a silent one: every result it
+// produces carries scannerNotice, and the first fallback in a process also
+// prints one line to stderr (support#8 item 2).
+const GITLEAKS_INSTALL = "brew install gitleaks";
+let fallbackAnnounced = false;
+
+function fallbackNotice(reason) {
+  const notice = reason === "failed"
+    ? `gitleaks failed to run, so Git Manager used its built-in pattern scanner, which misses many key formats. Check the gitleaks install (${GITLEAKS_INSTALL}).`
+    : `gitleaks is not installed, so Git Manager used its built-in pattern scanner, which misses many key formats. Install gitleaks for full coverage: ${GITLEAKS_INSTALL}`;
+  if (!fallbackAnnounced) {
+    fallbackAnnounced = true;
+    try { process.stderr.write(`[git-manager] ${notice}\n`); } catch {}
+  }
+  return notice;
+}
+
 function scanForSecrets(options = {}) {
   const staged = options.staged !== false;
   const repo = repoPath(options.repositoryRoot || options.root || options.projectRoot);
 
+  let fallbackReason = "missing";
   if (hasGitleaks()) {
+    fallbackReason = "failed";
     const reportPath = path.join(os.tmpdir(), `gitleaks-report-${process.pid}-${Date.now()}.json`);
     try {
       const args = ["git", "--no-banner", "--redact", "--report-format", "json", "--report-path", reportPath];
@@ -119,6 +128,7 @@ function scanForSecrets(options = {}) {
   }
 
   // Built-in Regex Scanner
+  const scannerNotice = fallbackNotice(fallbackReason);
   const findings = [];
   try {
     const gitArgs = staged ? ["diff", "--cached", "--name-only"] : ["diff", "HEAD", "--name-only"];
@@ -128,6 +138,7 @@ function scanForSecrets(options = {}) {
     } catch (err) {
       return {
         scanner: "builtin-regex",
+        scannerNotice,
         clean: false,
         findings: [],
         warning: "Scanning was impossible (git diff failed). Failing closed.",
@@ -188,12 +199,14 @@ function scanForSecrets(options = {}) {
 
     return {
       scanner: "builtin-regex",
+      scannerNotice,
       clean: findings.length === 0,
       findings,
     };
   } catch (err) {
     return {
       scanner: "builtin-regex",
+      scannerNotice,
       clean: false,
       findings: [],
       warning: `Scanning failed: ${err.message}. Failing closed for platform safety.`,
@@ -439,6 +452,7 @@ function preCommitCheck(options = {}) {
     safe,
     blockers,
     warnings,
+    ...(secretResults.scannerNotice ? { scannerNotice: secretResults.scannerNotice } : {}),
     secretResults,
     largeFileResults,
   };

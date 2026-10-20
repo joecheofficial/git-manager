@@ -1,11 +1,13 @@
 {
   "name": "git-manager-starter",
-  "version": "0.1.0",
-  "license": "SEE LICENSE IN LICENSE",
+  "version": "5.10.3",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {
     "demo": "node src/index.js demo",
-    "selftest": "node tests/run-tests.js"
+    "cleanup": "node src/cleanup-cli.js",
+    "branches": "node src/branch-retirement-cli.js",
+    "test": "node --test test/*.test.js && node tests/run-tests.js"
   },
   "engines": {
     "node": ">=20"
