@@ -53,12 +53,39 @@ runTest("safety.scanForSecrets detects and redacts fake secret key", () => {
     fs.writeFileSync(secretFile, `const apiKey = "${fakeKey}";\n`);
     execFileSync("git", ["-C", repo, "add", "config.js"], { stdio: ["ignore", "pipe", "pipe"] });
 
-    const result = safety.scanForSecrets({ repositoryRoot: repo, staged: true });
-    assert.strictEqual(result.clean, false, "Expected scanForSecrets clean to be false");
-    assert.ok(result.findings.length > 0, "Expected at least one secret finding");
-    const finding = result.findings[0];
-    assert.ok(finding.redactedMatch.includes("[REDACTED]"), "Expected match to be redacted");
-    assert.strictEqual(finding.redactedMatch.includes(fakeKey), false, "Redacted match must not contain original full key");
+    // Masking depends on the scanner. Without gitleaks the built-in scanner
+    // keeps the first and last four characters (sk-p...7890). With gitleaks
+    // --redact the secret arrives as REDACTED and is marked [REDACTED]. Check
+    // the built-in path every time (PATH holding only git hides gitleaks), and
+    // the gitleaks path too when gitleaks is installed.
+    const masked = `${fakeKey.slice(0, 4)}...${fakeKey.slice(-4)}`;
+    const assertMasked = (result) => {
+      assert.strictEqual(result.clean, false, `Expected ${result.scanner} scan clean to be false`);
+      assert.ok(result.findings.length > 0, `Expected at least one ${result.scanner} secret finding`);
+      for (const finding of result.findings) {
+        assert.strictEqual(finding.redactedMatch.includes(fakeKey), false, "Redacted match must not contain the original key");
+        assert.strictEqual(finding.redactedMatch.includes(fakeKey.slice(4, -4)), false, "Redacted match must not contain the key body");
+      }
+      const matches = result.findings.map((finding) => finding.redactedMatch);
+      if (result.scanner === "gitleaks") assert.ok(matches.some((match) => match.includes("[REDACTED]")), `Expected a [REDACTED] marker, got ${matches.join(", ")}`);
+      else assert.ok(matches.includes(masked), `Expected masked form ${masked}, got ${matches.join(", ")}`);
+    };
+
+    const gitOnlyBin = fs.mkdtempSync(path.join(os.tmpdir(), "git-mgr-bin-"));
+    const originalPath = process.env.PATH;
+    try {
+      const gitBinary = execFileSync("git", ["--exec-path"], { encoding: "utf8" }).trim();
+      fs.symlinkSync(path.join(gitBinary, "git"), path.join(gitOnlyBin, "git"));
+      process.env.PATH = gitOnlyBin;
+      const builtin = safety.scanForSecrets({ repositoryRoot: repo, staged: true });
+      assert.strictEqual(builtin.scanner, "builtin-regex", "Expected the built-in scanner when gitleaks is not on PATH");
+      assertMasked(builtin);
+    } finally {
+      process.env.PATH = originalPath;
+      cleanupTempDir(gitOnlyBin);
+    }
+
+    assertMasked(safety.scanForSecrets({ repositoryRoot: repo, staged: true }));
   } finally {
     cleanupTempDir(repo);
   }
