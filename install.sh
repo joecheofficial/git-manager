@@ -3,7 +3,7 @@
 set -eu
 DIR=$(cd "$(dirname "$0")" && pwd)
 
-command -v node >/dev/null 2>&1 || { echo "Node.js is not installed. Install Node 18 or newer, then run this again."; exit 1; }
+command -v node >/dev/null 2>&1 || { echo "Node.js is not installed. Install Node 20 or newer, then run this again."; exit 1; }
 echo "Git Manager folder: $DIR"
 if node -e 'const p=require(process.argv[1]);process.exit(Object.keys(p.dependencies||{}).length?0:1)' "$DIR/package.json"; then
   echo "Installing dependencies (npm install --omit=dev)"
