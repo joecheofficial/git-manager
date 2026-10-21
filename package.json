@@ -1,6 +1,6 @@
 {
   "name": "git-manager-starter",
-  "version": "5.10.3",
+  "version": "5.10.4",
   "private": true,
   "license": "SEE LICENSE IN LICENSE.md",
   "scripts": {

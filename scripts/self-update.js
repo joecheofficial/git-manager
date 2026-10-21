@@ -30,6 +30,8 @@
 //   node scripts/self-update.js            weekly check, apply when due
 //   node scripts/self-update.js --now      check and apply right now
 //   node scripts/self-update.js --check    only say whether an update exists (no changes)
+//   node scripts/self-update.js --realign  move a clone made before an upstream history
+//                                          rewrite onto the new history (backed up first)
 //   node scripts/self-update.js --status   show the setting, last check and last result
 //   node scripts/self-update.js --off      turn weekly updates off
 //   node scripts/self-update.js --on       turn them back on
@@ -103,14 +105,37 @@ function repoRoot(start = packageDir()) {
   }
 }
 
-// Only a dedicated clone is updated: the package sits at the repo root or one
-// folder below it. A package vendored deep inside someone's own repository is
-// theirs to update, and fast-forwarding that repository is not this script's job.
-function dedicatedClone(repo, pkg = packageDir()) {
+// The real on-disk spelling of a path. On a case-insensitive Mac or Windows disk
+// ~/projects/tool and ~/Projects/tool are one folder, but git reports the real
+// spelling while __dirname keeps whatever spelling the caller typed.
+function canonicalPath(value) {
+  try { return fs.realpathSync.native(value); } catch { /* fall through */ }
+  try { return fs.realpathSync(value); } catch { return path.resolve(value); }
+}
+
+function caseInsensitiveDisk() {
+  const platform = process.env.ALLSORTED_SELF_UPDATE_PLATFORM || process.platform;
+  return platform === "darwin" || platform === "win32";
+}
+
+function relativeInside(repo, pkg) {
   const relative = path.relative(repo, pkg);
   if (!relative) return true;
   if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
   return relative.split(path.sep).length === 1;
+}
+
+// Only a dedicated clone is updated: the package sits at the repo root or one
+// folder below it. A package vendored deep inside someone's own repository is
+// theirs to update, and fast-forwarding that repository is not this script's job.
+function dedicatedClone(repo, pkg = packageDir()) {
+  const realRepo = canonicalPath(repo);
+  const realPkg = canonicalPath(pkg);
+  if (relativeInside(realRepo, realPkg)) return true;
+  // Paths that do not exist (or a disk that realpath could not settle) are
+  // compared without case where the disk ignores case anyway.
+  if (caseInsensitiveDisk()) return relativeInside(realRepo.toLowerCase(), realPkg.toLowerCase());
+  return false;
 }
 
 function statePath(repo) { return path.join(repo, STATE_FILE); }
@@ -364,6 +389,68 @@ function displayName(repo) {
 
 // --- the update itself -----------------------------------------------------
 
+const REWRITE_MAX_LOCAL = 200;
+const REWRITE_MAX_UPSTREAM = 2000;
+
+// "<patch-id> <commit>" for every non-merge commit in a log range.
+function patchIds(repo, range, limit) {
+  const log = spawnSync("git", ["-C", repo, "-c", "log.showSignature=false", "log", "-p", "--no-color", "--no-ext-diff", `-n${limit}`, "--format=commit %H", ...range], {
+    encoding: "utf8", timeout: 60000, maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (log.status !== 0 || log.error) return null;
+  const ids = spawnSync("git", ["-C", repo, "patch-id", "--stable"], {
+    input: log.stdout, encoding: "utf8", timeout: 60000, maxBuffer: 16 * 1024 * 1024, stdio: ["pipe", "pipe", "pipe"],
+  });
+  if (ids.status !== 0 || ids.error) return null;
+  const map = new Map();
+  for (const line of ids.stdout.split("\n")) {
+    const [patch, commit] = line.trim().split(/\s+/);
+    if (patch && commit) map.set(commit, patch);
+  }
+  return map;
+}
+
+// A clone made before the project rewrote its published history (for example
+// to change the author on old commits) has commits the project no longer has,
+// so it can never fast-forward. That is safe to realign only when every one of
+// those local commits is an old copy of a project commit (the same change by
+// patch-id, or the same tree with the same subject line) and the clone's
+// current files are exactly the files of one project commit. A commit of the
+// member's own, including a revert back to an older release, matches neither.
+// Returns { target, matched } or null.
+function findRewrite(repo, head, remote) {
+  const local = git(repo, ["-c", "log.showSignature=false", "log", `-n${REWRITE_MAX_LOCAL + 1}`, "--format=%H %T %s", head, "--not", remote]);
+  if (!local.ok) return null;
+  const parse = text => text.split("\n").filter(Boolean).map(line => {
+    const [commit, tree, ...subject] = line.split(" ");
+    return { commit, tree, subject: subject.join(" ") };
+  });
+  const localCommits = parse(local.stdout);
+  if (!localCommits.length || localCommits.length > REWRITE_MAX_LOCAL) return null;
+  const upstream = git(repo, ["-c", "log.showSignature=false", "log", `-n${REWRITE_MAX_UPSTREAM}`, "--format=%H %T %s", remote]);
+  if (!upstream.ok) return null;
+  const byTree = new Map();
+  const treeSubjects = new Set();
+  for (const entry of parse(upstream.stdout)) {
+    if (!byTree.has(entry.tree)) byTree.set(entry.tree, entry.commit); // newest commit with that tree
+    treeSubjects.add(`${entry.tree} ${entry.subject}`);
+  }
+  const headTree = git(repo, ["rev-parse", `${head}^{tree}`]);
+  if (!headTree.ok || !byTree.has(headTree.stdout)) return null;
+  const unmatched = localCommits.filter(entry => !treeSubjects.has(`${entry.tree} ${entry.subject}`));
+  if (unmatched.length) {
+    const localIds = patchIds(repo, [head, "--not", remote], REWRITE_MAX_LOCAL);
+    const upstreamIds = patchIds(repo, [remote], REWRITE_MAX_UPSTREAM);
+    if (!localIds || !upstreamIds) return null;
+    const known = new Set(upstreamIds.values());
+    for (const entry of unmatched) {
+      const id = localIds.get(entry.commit);
+      if (!id || !known.has(id)) return null;
+    }
+  }
+  return { target: byTree.get(headTree.stdout), matched: localCommits.length };
+}
+
 function checkRemote(repo) {
   const fetched = git(repo, ["fetch", "--quiet", "origin"], { timeout: FETCH_TIMEOUT_MS });
   if (!fetched.ok) return { error: fetched.timedOut ? "could not reach origin within 20 seconds" : `git fetch failed: ${fetched.stderr || "unknown error"}` };
@@ -375,7 +462,12 @@ function checkRemote(repo) {
   const ancestor = git(repo, ["merge-base", "--is-ancestor", head.stdout, remote.stdout]);
   const log1 = git(repo, ["log", "--no-merges", "--format=%s", `${head.stdout}..${remote.stdout}`]);
   const subjects = log1.ok ? log1.stdout.split("\n").filter(Boolean) : [];
-  return { branch, head: head.stdout, remote: remote.stdout, behind: subjects.length || 1, fastForward: ancestor.ok, subjects };
+  const rewrite = ancestor.ok ? null : findRewrite(repo, head.stdout, remote.stdout);
+  return { branch, head: head.stdout, remote: remote.stdout, behind: subjects.length || 1, fastForward: ancestor.ok, subjects, rewrite };
+}
+
+function realignCommand(repo) {
+  return `node "${path.join(packageDir(), "scripts", "self-update.js")}" --realign`;
 }
 
 function applyUpdate(repo, check, log) {
@@ -388,6 +480,14 @@ function applyUpdate(repo, check, log) {
       message: `${name}: an update is ready but these files have local changes: ${dirty.join(", ")}.\n` +
         `  Keep them and update: git -C "${repo}" stash && node "${path.join(pkgDir, "scripts", "self-update.js")}" --now && git -C "${repo}" stash pop\n` +
         `  Or make them permanent first: git -C "${repo}" commit -am "my changes" (then the update stops, because your copy has its own commits).`,
+    };
+  }
+  if (!check.fastForward && check.rewrite) {
+    return {
+      result: "refused: rewritten history (realign available)",
+      message: `${name}: your copy was cloned before the project rewrote its published history, so it cannot be fast-forwarded.\n` +
+        `  Your ${check.rewrite.matched} local commit${check.rewrite.matched === 1 ? " is an old copy" : "s are old copies"} of the project's own commits and your files match the project exactly, so nothing of yours would be lost.\n` +
+        `  Realign safely (keeps a backup branch and backs up your files first): ${realignCommand(repo)}`,
     };
   }
   if (!check.fastForward) {
@@ -447,6 +547,44 @@ function applyUpdate(repo, check, log) {
   return { result: `updated to ${current.slice(0, 7)}`, message: block, whatsNew: block, updated: true, from: previous, to: current };
 }
 
+// realign(): move a pre-rewrite clone onto the project's new history. The old
+// commits stay on a backup branch, the member's files are backed up, the reset
+// changes no file (the target has the same tree as HEAD), and then the normal
+// fast-forward, self-test and rollback run.
+function realign(repo, check, log) {
+  const name = displayName(repo);
+  const dirty = dirtyTracked(repo);
+  if (dirty.length) {
+    return {
+      result: "refused: local changes",
+      message: `${name}: these files have local changes: ${dirty.join(", ")}. Save or stash them first (git -C "${repo}" stash), then run the realign again.`,
+    };
+  }
+  const saved = backup(repo);
+  log(`Backed up ${Object.keys(saved.manifest.files).length} protected file(s) to ${path.relative(repo, saved.root)}/`);
+  const branch = `allsorted-backup/pre-realign-${timestamp()}`;
+  const made = git(repo, ["branch", branch, check.head]);
+  if (!made.ok) return { result: `realign failed: could not create ${branch}`, message: `${name}: realign stopped before changing anything (could not create the backup branch ${branch}: ${made.stderr}).` };
+  log(`Your old history is kept on branch ${branch} (go back with: git -C "${repo}" reset --hard ${branch}).`);
+  const before = git(repo, ["rev-parse", "HEAD^{tree}"]).stdout;
+  const moved = git(repo, ["reset", "--keep", "--quiet", check.rewrite.target]);
+  const after = git(repo, ["rev-parse", "HEAD^{tree}"]).stdout;
+  if (!moved.ok || before !== after) {
+    git(repo, ["reset", "--keep", "--quiet", check.head]);
+    return { result: "realign failed: reset", message: `${name}: realign stopped (${moved.stderr || "the files would have changed"}). You are back on ${check.head.slice(0, 7)}; branch ${branch} also holds it.` };
+  }
+  log(`${name}: realigned onto the project's history at ${check.rewrite.target.slice(0, 7)} (no files changed).`);
+  if (check.rewrite.target === check.remote) {
+    return { result: `realigned at ${check.remote.slice(0, 7)}`, message: `${name} is up to date (${check.remote.slice(0, 7)}).`, updated: true, whatsNew: null };
+  }
+  const log1 = git(repo, ["log", "--no-merges", "--format=%s", `${check.rewrite.target}..${check.remote}`]);
+  const subjects = log1.ok ? log1.stdout.split("\n").filter(Boolean) : [];
+  const next = { ...check, head: check.rewrite.target, fastForward: true, rewrite: null, subjects, behind: subjects.length || 1 };
+  const outcome = applyUpdate(repo, next, log);
+  if (!outcome.updated) outcome.message += `\n  Your old history is still on branch ${branch}.`;
+  return outcome;
+}
+
 // run(options): the whole weekly flow. Never throws; returns { code, result }.
 //   options.now      ignore the 7-day throttle and the auto setting
 //   options.checkOnly only report, never change the clone
@@ -483,6 +621,28 @@ function run(options = {}) {
       writeState(repo, state);
       log(`${name} is up to date (${check.head.slice(0, 7)}).`);
       return { code: 0, result: state.lastResult };
+    }
+    if (check.rewrite && options.checkOnly) {
+      state.lastResult = "update available: realign needed (cloned before a history rewrite)";
+      writeState(repo, state);
+      log(`${name}: an update is available, but this copy was cloned before the project rewrote its history. Move it over safely with: ${realignCommand(repo)}`);
+      return { code: 0, result: state.lastResult, behind: check.behind, rewrite: check.rewrite };
+    }
+    if (check.rewrite && !options.realign) {
+      const outcome = applyUpdate(repo, check, log);
+      state.lastResult = outcome.result;
+      writeState(repo, state);
+      log(outcome.message);
+      return { code: 2, result: outcome.result, outcome };
+    }
+    if (check.rewrite && options.realign) {
+      const outcome = realign(repo, check, log);
+      state.lastResult = outcome.result;
+      if (outcome.updated) { state.lastUpdate = nowIso(); state.whatsNew = outcome.whatsNew; }
+      writeState(repo, state);
+      log(outcome.message);
+      const code = outcome.updated ? 0 : outcome.result.startsWith("refused") ? 2 : 1;
+      return { code, result: outcome.result, outcome };
     }
     if (options.checkOnly) {
       state.lastResult = `update available: ${check.behind} commit(s) behind origin/${check.branch}`;
@@ -665,6 +825,7 @@ function explain(log) {
   log("Your own files are never overwritten. A plain what's-new note is printed after each update.");
   log(`  Turn off:  node "${script}" --off      Turn on: node "${script}" --on`);
   log(`  Status:    node "${script}" --status   Run now: node "${script}" --now`);
+  log(`  Cloned before a history rewrite? node "${script}" --realign moves you onto the new history (backed up first).`);
 }
 
 // main(argv, io): io.log is an optional line sink so a host CLI can embed this.
@@ -689,13 +850,14 @@ function main(argv, io = {}) {
     log(`Self-update: ${error.message}`);
     return 1;
   }
-  return run({ now: flags.has("--now"), checkOnly: flags.has("--check"), log }).code;
+  const realignNow = flags.has("--realign");
+  return run({ now: flags.has("--now") || realignNow, realign: realignNow, checkOnly: flags.has("--check"), log }).code;
 }
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
 module.exports = {
-  run, startupCheck, main, readState, writeState, repoRoot, packageDir, dedicatedClone, defaultBranch, matchesProtected, protectedFiles,
+  run, startupCheck, main, readState, writeState, repoRoot, packageDir, dedicatedClone, canonicalPath, findRewrite, realign, defaultBranch, matchesProtected, protectedFiles,
   backup, restoreBackup, dirtyTracked, selfTestCommand, groupSubjects, whatsNewBlock, scheduler, due, optedOut,
   PROTECTED_GLOBS, STATE_FILE, BACKUP_DIR, WEEK_MS,
 };
