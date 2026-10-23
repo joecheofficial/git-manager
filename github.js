@@ -1,6 +1,7 @@
 "use strict";
 
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const { resolveRepositoryRoot: repoPath } = require("./profile");
@@ -216,15 +217,50 @@ function pullWork(input = {}, rootOverride) {
     throw new Error("This directory is not a Git repository.");
   }
 
-  try {
-    git(root, ["pull", "--rebase", "--autostash"]);
-    return {
-      status: "ok",
-      reply: "Your work is up to date with GitHub."
-    };
-  } catch (err) {
-    throw new Error(`Failed to pull work from GitHub: ${err.message}`);
+  // Merge, never rebase: fetch, then merge the upstream into the current branch
+  // (a fast-forward when nothing local is new, otherwise a merge commit). No
+  // autostash: uncommitted work is never set aside and replayed behind your back.
+  const gitDir = path.resolve(root, git(root, ["rev-parse", "--git-dir"]));
+  const operation = ["MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG", "rebase-merge", "rebase-apply"].find((marker) => fs.existsSync(path.join(gitDir, marker)));
+  if (operation) {
+    throw new Error(`A git operation is already in progress here (${operation}). Finish or abort it yourself first; pull-work will not touch it. Nothing was changed.`);
   }
+  const upstream = gitOrNull(root, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  const branch = gitOrNull(root, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  const remote = branch ? gitOrNull(root, ["config", "--get", `branch.${branch}.remote`]) : null;
+  if (!upstream || !remote) {
+    throw new Error("This branch does not track a GitHub branch yet, so there is nothing to pull. Push it first with push-work.");
+  }
+  if (gitOrNull(root, ["status", "--porcelain", "--untracked-files=no"])) {
+    throw new Error("You have uncommitted changes. Save them first (commit, or finish your task with git-manager finish), then pull again. Nothing was changed.");
+  }
+  if (remote !== ".") {
+    try {
+      git(root, ["fetch", "--quiet", remote], { env: { GIT_TERMINAL_PROMPT: "0" } });
+    } catch (err) {
+      throw new Error(`Failed to fetch from GitHub: ${err.message}`);
+    }
+  }
+  const before = git(root, ["rev-parse", "HEAD"]);
+  try {
+    git(root, ["merge", "--no-edit", upstream], { env: { GIT_MERGE_AUTOEDIT: "no" } });
+  } catch (err) {
+    // Only a merge this command left half-done is undone (we refused above if
+    // one was already in progress). A conflict is never resolved automatically.
+    if (fs.existsSync(path.join(gitDir, "MERGE_HEAD"))) {
+      gitOrNull(root, ["merge", "--abort"]);
+      throw new Error(`Pulling ${upstream} needs a decision: your branch and GitHub both changed the same lines. Nothing was changed. Resolve it by intent with git-manager start/finish (finish merges and stops on the conflict for you to resolve), never by rebase or force. Details: ${err.message}`);
+    }
+    const unchanged = gitOrNull(root, ["rev-parse", "HEAD"]) === before;
+    throw new Error(`Could not merge ${upstream}${unchanged ? "; your branch was not changed" : ""}. Git said: ${String(err.stderr || err.message).trim()}`);
+  }
+  const after = git(root, ["rev-parse", "HEAD"]);
+  return {
+    status: "ok",
+    reply: before === after ? "Your work is already up to date with GitHub." : `Merged the latest work from ${upstream} (merge, never rebase).`,
+    upstream,
+    merged: before !== after
+  };
 }
 
 function remoteStatus(input = {}, rootOverride) {

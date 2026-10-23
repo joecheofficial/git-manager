@@ -28,6 +28,17 @@ const refusal = (reason, extra = {}) => {
   return { ok: false, refused: true, reasons, ...extra, continuation: recoveryAdvisor.advise(reasons, extra) };
 };
 const errorText = (e) => String(e.stderr || e.message).trim().slice(0, 300);
+// The default fetch in start must never prompt or hang: no credential prompt,
+// SSH in batch mode with a connect timeout, and HTTP aborts a stalled transfer.
+function fetchOrigin(repo, branch, env = process.env) {
+  const fetchEnv = { ...env, GIT_TERMINAL_PROMPT: "0" };
+  // Never override the user's own SSH choice (GIT_SSH_COMMAND, GIT_SSH or core.sshCommand).
+  if (!fetchEnv.GIT_SSH_COMMAND && !fetchEnv.GIT_SSH && !maybeGit(repo, ["config", "--get", "core.sshCommand"])) fetchEnv.GIT_SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=10";
+  // 30 s overall: an unreachable server (VPN off, dropped packets) costs at most that.
+  return execFileSync("git", ["--no-optional-locks", "-c", "http.lowSpeedLimit=1000", "-c", "http.lowSpeedTime=15", "-C", repo, "fetch", "--quiet", "origin", branch], {
+    encoding: "utf8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"], env: fetchEnv,
+  });
+}
 function git(repo, args, timeout = 20000, maxBuffer = 16 * MiB) {
   return execFileSync("git", ["--no-optional-locks", "-C", repo, ...args], {
     encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"], maxBuffer,
@@ -62,6 +73,27 @@ function resolveRepo(inputPath = process.cwd()) {
     const primary = path.basename(gitDir) === ".git" ? path.dirname(gitDir) : toplevel;
     return { input, toplevel, primary, gitDir, name: path.basename(primary) };
   } catch { throw new Error("not a git repository"); }
+}
+// checkin.enforcedRepos entries are repository paths. An entry ending in "/*"
+// means every git repository directly inside that folder (for example
+// "~/allsorted/*" covers allsorted-dist and every All Sorted module repo cloned
+// there); a folder that does not exist on this machine contributes nothing.
+function enforcedRepoInputs(cfg) {
+  const inputs = [];
+  for (const input of cfg.enforcedRepos || []) {
+    if (typeof input !== "string" || !input) continue;
+    if (!/[\\/]\*$/.test(input)) { inputs.push(input); continue; }
+    const parent = expand(input.slice(0, -2));
+    let entries = [];
+    try { entries = fs.readdirSync(parent, { withFileTypes: true }); } catch { continue; }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const candidate = path.join(parent, entry.name);
+      let directory = false;
+      try { directory = fs.statSync(candidate).isDirectory(); } catch { /* broken symlink */ }
+      if (directory && fs.existsSync(path.join(candidate, ".git"))) inputs.push(candidate);
+    }
+  }
+  return [...new Set(inputs)];
 }
 function ownerFor(paths, config = {}) {
   return (config.checkin || config).ownerSessions?.find(owner => owner.paths.some(root => paths.some(p => within(canonical(p), canonical(root))))) || null;
@@ -121,7 +153,7 @@ function commandClaimsLock(file, fn, opts = {}, pending = "") {
 }
 function writeClaims(store, cfg, now) {
   store.updatedAt = new Date(now).toISOString();
-  store.enforcedRepos = [...new Set((cfg.enforcedRepos || []).filter(p => fs.existsSync(expand(p))).map(canonical))];
+  store.enforcedRepos = [...new Set(enforcedRepoInputs(cfg).filter(p => fs.existsSync(expand(p))).map(canonical))];
   store.released = store.released.slice(-200);
   const tmp = `${cfg.claimsFile}.tmp-${process.pid}`;
   try { fs.writeFileSync(tmp, JSON.stringify(store, null, 2) + "\n"); fs.renameSync(tmp, cfg.claimsFile); }
@@ -166,7 +198,12 @@ function health(repoInfo, opts = {}) {
   info.defaultBranch = defaultBranch(repo);
   info.currentBranch = git(repo, ["branch", "--show-current"]) || "DETACHED";
   if (info.currentBranch !== info.defaultBranch) warnings.push(`primary is on ${info.currentBranch}, not ${info.defaultBranch} (rule 1)`);
-  if (opts.fetch) { try { git(repo, ["fetch", "--quiet", "origin", info.defaultBranch]); } catch (e) { warnings.push(`fetch failed: ${errorText(e)}`); } }
+  // start fetches first by default, so a task never begins from a stale base
+  // (another machine may have pushed). --no-fetch skips it; a repo without an
+  // origin remote has nothing to fetch.
+  if (opts.fetch !== false && maybeGit(repo, ["remote", "get-url", "origin"])) {
+    try { fetchOrigin(repo, info.defaultBranch); info.fetched = true; } catch (e) { warnings.push(`fetch failed, working from the last fetched state: ${errorText(e)}`); }
+  }
   info.base = info.defaultBranch;
   if (maybeGit(repo, ["show-ref", "--verify", `refs/remotes/origin/${info.defaultBranch}`])) {
     [info.ahead, info.behind] = git(repo, ["rev-list", "--left-right", "--count", `${info.defaultBranch}...origin/${info.defaultBranch}`]).split(/\s+/).map(Number);
@@ -829,7 +866,7 @@ function unclaimedCommitFindings(opts = {}) {
     const cfg = settings(opts), store = opts.store || loadClaims(cfg.claimsFile), report = opts.report || (() => {});
     const hours = cfg.unclaimedWindowHours ?? 2, since = `--since=${new Date(stamp(opts) - hours * HOUR).toISOString()}`;
     const automation = (cfg.automationSubjects || []).map(p => new RegExp(p));
-    for (const input of cfg.enforcedRepos || []) {
+    for (const input of enforcedRepoInputs(cfg)) {
       try {
         const repo = resolveRepo(expand(input)).primary, target = defaultBranch(repo);
         const claims = [...store.claims, ...store.released].filter(c => c.repo === repo);
@@ -861,15 +898,15 @@ function sweep(opts = {}) {
   try { claims = sweepClaims({ ...opts, config: cfg, now, report }); }
   catch (error) { claims = null; report("claims-sweep-failed", "warn", cfg.claimsFile, error.message, "check that the claims store is readable JSON"); }
   if (claims?.skipped) report("claims-sweep-skipped", "warn", cfg.claimsFile, `claims sweep skipped: ${claims.skipped}`, "retry in a moment");
-  const repos = [];
-  for (const input of cfg.enforcedRepos || []) {
+  const repos = [], enforced = enforcedRepoInputs(cfg);
+  for (const input of enforced) {
     try { repos.push(resolveRepo(expand(input)).primary); }
     catch { report("enforced-repo-unavailable", "warn", input, `${input}: not a readable git repository; skipped`, "fix or remove it from checkin.enforcedRepos"); }
   }
-  if (!(cfg.enforcedRepos || []).length) report("no-enforced-repos", "info", null, "checkin.enforcedRepos is empty: claims were swept, no repositories were checked for unclaimed commits");
+  if (!enforced.length) report("no-enforced-repos", "info", null, (cfg.enforcedRepos || []).length ? "no repository matched checkin.enforcedRepos on this machine: claims were swept, no repositories were checked for unclaimed commits" : "checkin.enforcedRepos is empty: claims were swept, no repositories were checked for unclaimed commits");
   unclaimedCommitFindings({ ...opts, config: cfg, now, report });
   try { require("./stale-working-copy").staleWorkingCopyFindings({ repos, report, now }); }
   catch (error) { report("stale-working-copy-failed", "warn", null, error.message); }
   return { ok: true, readOnly: Boolean(opts.readOnly), claims, repos, findings };
 }
-module.exports = { sweep, resolveClaim, actor, sessionLabel, defaultOwnerPrefix, resolveRepo, ownerFor, loadClaims, withClaimsLock, health, collisions, start, finish, release, listClaims, claimActivity, sweepClaims, unclaimedCommitFindings, scopeAuditBase };
+module.exports = { enforcedRepoInputs, sweep, resolveClaim, actor, sessionLabel, defaultOwnerPrefix, resolveRepo, ownerFor, loadClaims, withClaimsLock, health, collisions, start, finish, release, listClaims, claimActivity, sweepClaims, unclaimedCommitFindings, scopeAuditBase };

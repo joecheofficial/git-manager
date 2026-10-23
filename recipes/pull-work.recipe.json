@@ -17,7 +17,7 @@
     "destructive": false,
     "approvalRequired": false,
     "dryRunDefault": false,
-    "rule": "Pulls latest changes from GitHub using rebase and autostash."
+    "rule": "Fetches, then merges the latest changes from GitHub into the current branch (fast-forward or merge commit). Never rebases, never autostashes; refuses with uncommitted changes and aborts cleanly on a conflict."
   },
   "inputMode": "structured",
   "requiredContext": [],

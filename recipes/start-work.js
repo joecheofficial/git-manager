@@ -2,7 +2,7 @@
 const checkin = require("../src/checkin");
 module.exports.runRecipe = async function runRecipe(input = {}) {
   try {
-    const result = checkin.start(input.repo, { task: input.task, owner: input.owner, paths: input.paths, session: input.session, asOwner: input.asOwner, dependencies: input.dependencies, fullCheckout: input.fullCheckout === true, dryRun: input.dryRun });
+    const result = checkin.start(input.repo, { task: input.task, owner: input.owner, paths: input.paths, session: input.session, asOwner: input.asOwner, dependencies: input.dependencies, fullCheckout: input.fullCheckout === true, dryRun: input.dryRun, fetch: input.fetch !== false });
     const lines = [...(result.health?.warnings || []), ...(result.collisions?.warnings || [])].map(w => `warn: ${w}`);
     if (!result.ok) lines.push(...result.reasons.map(r => `REFUSED: ${r}`));
     else if (result.dryRun) lines.push(`dry run: ${result.plan.branch} from ${result.plan.base}`, `cd ${result.plan.worktree}`);
