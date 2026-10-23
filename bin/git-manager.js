@@ -14,7 +14,7 @@ function printUsage() {
       "Git Manager",
       "",
       "Usage:",
-      "  git-manager start <repo> --task <slug> [--owner <prefix>] [--program <name>] [--paths a,b] [--dependencies root1,root2] [--full-checkout] [--session <label>] [--as-owner <name>] [--allow-overlap] [--fetch] [--dry-run] [--json]",
+      "  git-manager start <repo> --task <slug> [--owner <prefix>] [--program <name>] [--paths a,b] [--dependencies root1,root2] [--full-checkout] [--session <label>] [--as-owner <name>] [--allow-overlap] [--no-fetch] [--dry-run] [--json]",
       "  git-manager finish [<claim>] [--push] [--keep-branch] [--test <cmd>] [--json]",
       "  git-manager release <claim> [--json]",
       "  git-manager amend-scope <claim-id> --paths a,b [--session <host-session>] [--dry-run] [--json]",
@@ -43,7 +43,7 @@ async function withRepoProbe(repoPath, run) {
 async function runCheckin(command, args) {
   const opts = {}, positional = [];
   const values = { "--task": "task", "--program": "program", "--owner": "owner", "--paths": "paths", "--dependencies": "dependencies", "--session": "session", "--as-owner": "asOwner", "--test": "testCommand" };
-  const flags = { "--allow-overlap": "allowOverlap", "--fetch": "fetch", "--dry-run": "dryRun", "--full-checkout": "fullCheckout", "--read-only": "readOnly", "--json": "json", "--push": "push", "--keep-branch": "keepBranch", "--all": "all" };
+  const flags = { "--allow-overlap": "allowOverlap", "--fetch": "fetch", "--no-fetch": "noFetch", "--dry-run": "dryRun", "--full-checkout": "fullCheckout", "--read-only": "readOnly", "--json": "json", "--push": "push", "--keep-branch": "keepBranch", "--all": "all" };
   try {
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
@@ -55,6 +55,9 @@ async function runCheckin(command, args) {
       else positional.push(arg);
     }
     if (positional.length > 1) throw new Error("expected at most one repository or claim");
+    // start fetches by default; --no-fetch opts out (--fetch is kept as a no-op for old scripts).
+    if (opts.noFetch) { if (opts.fetch) throw new Error("--fetch and --no-fetch conflict"); opts.fetch = false; }
+    delete opts.noFetch;
     // Command-specific switches are refused elsewhere so a preview flag can never be silently ignored.
     if (opts.readOnly && command !== "sweep") throw new Error("--read-only applies only to sweep");
     if ((opts.fullCheckout || opts.dependencies !== undefined) && command !== "start") throw new Error("--dependencies and --full-checkout apply only to start");

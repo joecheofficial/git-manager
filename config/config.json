@@ -12,7 +12,9 @@
       "^Merge branch '[^']+' of ",
       "^snapshot"
     ],
-    "enforcedRepos": [],
+    "enforcedRepos": [
+      "~/allsorted/*"
+    ],
     "ownerSessions": []
   }
 }

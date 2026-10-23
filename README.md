@@ -49,7 +49,7 @@ export REPOSITORY_ROOT="/path/to/your/repo"
 
 ### Check in before you edit
 
-Run `node bin/git-manager.js start <repo> --task <name>` before the first write. It creates a branch and a separate worktree for that task and records a claim, so two sessions never overwrite each other. When you are done, `finish` merges the branch (merge, never rebase), removes the worktree and releases the claim. `claims` lists open claims and `release` drops one.
+Run `node bin/git-manager.js start <repo> --task <name>` before the first write. It fetches from GitHub first (so a task never starts from a stale copy; `--no-fetch` skips it), then creates a branch and a separate worktree for that task and records a claim, so two sessions never overwrite each other. When you are done, `finish` merges the branch (merge, never rebase), removes the worktree and releases the claim. `claims` lists open claims and `release` drops one.
 
 
 A reserved owner session does not block authorized work when Git Manager can isolate it safely. Use your own actor and session label and declare the exact paths with `--paths`; do not borrow the reserved owner's identity. Git Manager records the takeover on the claim and checks active claims under the same lock. Overlapping paths, unknown path scope, unsafe repository state and isolation failures still refuse the start. Set `checkin.allowSafeOwnershipTakeover` to `false` to require the earlier handoff behavior. This setting does not grant permission to work on someone else's repository.
@@ -83,7 +83,7 @@ Claims expire only when a sweep runs, and nothing schedules one for you. Run `gi
 * expires claims idle longer than `checkin.staleClaimHours`
 * finalizes or archives worktree creations that crashed more than 30 minutes ago (it never deletes them)
 * closes claims whose work was merged some other way
-* for each repository in `checkin.enforcedRepos`, reports commits made without a claim and working copies that silently revert a newer commit
+* for each repository in `checkin.enforcedRepos`, reports commits made without a claim and working copies that silently revert a newer commit. An entry ending in `/*` covers every git repository directly inside that folder; new installs start with `~/allsorted/*`, where All Sorted contributors clone allsorted-dist and the module repos they own
 
 Add `--json` for machine-readable output. The `sweep-claims` recipe only ever previews.
 
@@ -96,7 +96,7 @@ When a released worktree has unfinished or unreadable files, Git Manager preserv
 * `connect-github`: check or establish authentication with GitHub CLI (`gh`)
 * `publish-repo`: create a new remote repository on GitHub (`public` or `private`) and push initial work (gated by confirmation phrase `PUBLISH`)
 * `push-work`: push local work safely to GitHub
-* `pull-work`: pull latest work from GitHub using rebase and autostash
+* `pull-work`: fetch and merge the latest work from GitHub (merge, never rebase; refuses with uncommitted changes and undoes a conflicted merge)
 
 ## Safety Rails
 
