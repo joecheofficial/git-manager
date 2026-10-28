@@ -76,6 +76,16 @@ Scoped checkouts need Git 2.34 or newer and `extensions.worktreeConfig` enabled 
 
 Git Manager estimates how many bytes a worktree will write. Above `checkin.fullCheckoutCeilingMiB` (default 256 MiB), `start` refuses a full checkout unless you ask for one. You can pass `--full-checkout`, declare the whole repository with `--paths .`, or scope the checkout with `--dependencies`. Reusing an existing claim is not affected. This is a size estimate only. Git Manager does not check free disk space.
 
+#### Never stuck: `unstick`
+
+`git-manager unstick [<repo>] [--dry-run]` clears what keeps a claim stuck:
+
+* It expires claims from sessions that have been idle longer than `checkin.staleClaimHours` (the same expiry a sweep does). Nothing is released or deleted, and a claim whose session comes back is reactivated by the next sweep.
+* It removes git lock files (`index.lock`, `HEAD.lock` and similar) that are at least 10 minutes old, and only when no git process is running.
+* For every claim still held, it prints the next step: leave it, `finish` it, or `release` it (unmerged work is archived first).
+
+`start` runs this once on its own when another claim is the only thing blocking it, then tries again. An overlapping claim from a session that is still working still holds.
+
 #### Sweeping claims
 
 Claims expire only when a sweep runs, and nothing schedules one for you. Run `git-manager sweep --read-only` to preview, then `git-manager sweep` to apply. A sweep does the following:

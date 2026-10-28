@@ -278,14 +278,32 @@ function start(repoPath, opts = {}) {
   const reused = (claim) => claim.pending ? refusal(`worktree creation for this task is in progress (started ${claim.createdAt}); retry in a moment`) : ({ ok: true, reused: true, claim, worktree: claim.worktree, cd: claim.worktree });
   const own = reuse(store);
   if (own && (own.pending || fs.existsSync(own.worktree))) {
-    if ((own.status === "active" && (!ownershipTakeover || own.ownershipTakeover)) || own.pending) return reused(own);
+    if (own.pending) return reused(own);
+    // Re-running start is activity. Record it so a session that just came back and has not
+    // edited yet never looks idle since its old creation time.
+    const touch = (claim) => { claim.reclaimedAt = new Date(now).toISOString(); };
+    if (own.status === "active" && (!ownershipTakeover || own.ownershipTakeover)) {
+      // A fresh claim is reused without a write. One past half its idle allowance gets its
+      // reclaim recorded, best effort: a busy or read-only store still returns the reuse.
+      let idle = false;
+      try { idle = claimActivity(own, { ...opts, config: cfg }).ageHours > (cfg.staleClaimHours ?? 8) / 2; } catch { /* unknown activity: leave as is */ }
+      if (opts.dryRun || !idle) return reused(own);
+      try {
+        return withClaimsLock(cfg.claimsFile, () => {
+          const store = loadClaims(cfg.claimsFile), claim = reuse(store);
+          if (!claim || claim.status !== "active") return reused(own);
+          touch(claim); writeClaims(store, cfg, now);
+          return reused(claim);
+        }, { ...opts, timeoutMs: 2000 });
+      } catch (e) { return { ...reused(own), warnings: [`reclaim not recorded: ${e.message}`] }; }
+    }
     return commandClaimsLock(cfg.claimsFile, () => {
       const store = loadClaims(cfg.claimsFile), claim = reuse(store);
       if (!claim || !fs.existsSync(claim.worktree)) return refusal("claim changed before reactivation; retry");
       if (claim.pending) return reused(claim);
       const other = reactivationBlocker(store, { ...claim, ownershipTakeover: claim.ownershipTakeover || ownershipTakeover });
       if (other) return refusal(`claim reactivation blocked: ${other.id} now holds the same task/paths`);
-      if (!opts.dryRun) { if (ownershipTakeover && !claim.ownershipTakeover) { claim.ownershipTakeover = ownershipTakeover; claim.ownerSession = owning.name; } claim.status = "active"; claim.updatedAt = new Date(now).toISOString(); writeClaims(store, cfg, now); }
+      if (!opts.dryRun) { if (ownershipTakeover && !claim.ownershipTakeover) { claim.ownershipTakeover = ownershipTakeover; claim.ownerSession = owning.name; } claim.status = "active"; claim.updatedAt = new Date(now).toISOString(); touch(claim); writeClaims(store, cfg, now); }
       return reused(claim);
     }, opts);
   }
@@ -323,8 +341,9 @@ function start(repoPath, opts = {}) {
         const other = reactivationBlocker(store, { ...own, ownershipTakeover: own.ownershipTakeover || ownershipTakeover });
         if (other) return refusal(`claim reactivation blocked: ${other.id} now holds the same task/paths`);
         if (ownershipTakeover && !own.ownershipTakeover) { own.ownershipTakeover = ownershipTakeover; own.ownerSession = owning.name; }
-        own.status = "active"; own.updatedAt = new Date(now).toISOString(); writeClaims(store, cfg, now);
+        own.status = "active"; own.updatedAt = new Date(now).toISOString();
       }
+      if (!own.pending) { own.reclaimedAt = new Date(now).toISOString(); writeClaims(store, cfg, now); }
       return reused(own);
     }
     const reasons = [];
@@ -756,6 +775,7 @@ function release(selector, opts = {}) {
 }
 function claimActivity(claim, opts = {}) {
   let latest = Date.parse(claim.createdAt);
+  if (claim.reclaimedAt) latest = Math.max(latest, Date.parse(claim.reclaimedAt) || 0);
   const sha = maybeGit(claim.repo, ["rev-parse", "--verify", `refs/heads/${claim.branch}`]);
   if (sha && sha !== claim.baseSha) latest = Math.max(latest, Number(git(claim.repo, ["show", "-s", "--format=%ct", sha])) * 1000);
   if (fs.existsSync(claim.worktree)) for (const entry of dirtyPaths(claim.worktree)) {
@@ -780,7 +800,7 @@ function sweepClaims(opts = {}) {
   const cfg = settings(opts), now = stamp(opts), report = opts.report || (() => {});
   const run = () => {
     const store = loadClaims(cfg.claimsFile); let closed = 0, expired = 0, active = 0;
-    for (const claim of [...store.claims].filter(c => ["active", "expired"].includes(c.status))) {
+    for (const claim of [...store.claims].filter(c => ["active", "expired"].includes(c.status) && (!opts.onlyRepo || c.repo === opts.onlyRepo))) {
       // Permission errors and offline mounts are unknown, never evidence of release.
       let worktreeExists;
       try {
@@ -851,7 +871,7 @@ function sweepClaims(opts = {}) {
       if (activity.stale) {
         if (!opts.readOnly) claim.status = "expired";
         expired++;
-        report("claim-stale", "warn", claim.repo, `${claim.id} (${claim.actor}/${claim.session}) has had no activity for ${activity.ageHours.toFixed(1)}h; ${opts.readOnly ? "would expire" : "expired"}`, `finish it with git-manager finish ${claim.id}, or release it`);
+        report("claim-stale", "warn", claim.repo, `${claim.id} (${claim.actor}/${claim.session}) has had no activity for ${activity.ageHours.toFixed(1)}h; ${opts.readOnly ? "would expire" : "expired"}`, `finish it with git-manager finish ${claim.id}, or release it`, { id: claim.id });
       } else active++;
       if (!opts.readOnly) { claim.lastActivityAt = activity.lastActivityAt; claim.updatedAt = new Date(now).toISOString(); }
     }
@@ -893,7 +913,7 @@ function unclaimedCommitFindings(opts = {}) {
 // run it whenever you want claims tidied (or with readOnly to preview).
 function sweep(opts = {}) {
   const cfg = settings(opts), now = stamp(opts), findings = [];
-  const report = (code, level, repo, message, fix) => findings.push({ code, level, repo, message, ...(fix ? { fix } : {}) });
+  const report = (code, level, repo, message, fix, extra) => findings.push({ code, level, repo, message, ...(fix ? { fix } : {}), ...(extra || {}) });
   let claims;
   try { claims = sweepClaims({ ...opts, config: cfg, now, report }); }
   catch (error) { claims = null; report("claims-sweep-failed", "warn", cfg.claimsFile, error.message, "check that the claims store is readable JSON"); }
@@ -909,4 +929,49 @@ function sweep(opts = {}) {
   catch (error) { report("stale-working-copy-failed", "warn", null, error.message); }
   return { ok: true, readOnly: Boolean(opts.readOnly), claims, repos, findings };
 }
-module.exports = { enforcedRepoInputs, sweep, resolveClaim, actor, sessionLabel, defaultOwnerPrefix, resolveRepo, ownerFor, loadClaims, withClaimsLock, health, collisions, start, finish, release, listClaims, claimActivity, sweepClaims, unclaimedCommitFindings, scopeAuditBase };
+// Never stuck (2026-10-28): nothing schedules a sweep on a customer Mac, so a claim from a
+// session that died stayed active and blocked every later start. unstick expires claims idle
+// past staleClaimHours (the same sweep, so nothing is released or deleted), removes git lock
+// files that no running git process owns, and names the next step for every claim still held.
+const LOCK_NAMES = ["index.lock", "HEAD.lock", "config.lock", "packed-refs.lock", "ORIG_HEAD.lock", "MERGE_HEAD.lock", "shallow.lock"];
+function gitRunning(opts = {}) {
+  if (Object.hasOwn(opts, "gitRunning")) return opts.gitRunning;
+  try { execFileSync("pgrep", ["-x", "git"], { stdio: "ignore" }); return true; }
+  catch (e) { return e.status === 1 ? false : null; }
+}
+function staleGitLocks(repo, opts = {}) {
+  const common = maybeGit(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+  if (!common) return [];
+  const dirs = [common];
+  try { for (const name of fs.readdirSync(path.join(common, "worktrees"))) dirs.push(path.join(common, "worktrees", name)); } catch { /* no linked worktrees */ }
+  const minAge = (opts.lockMinutes ?? 10) * 60000, now = stamp(opts), found = [];
+  for (const dir of dirs) for (const name of LOCK_NAMES) {
+    const file = path.join(dir, name);
+    try { const st = fs.lstatSync(file); if (st.isFile() && now - st.mtimeMs >= minAge) found.push(file); } catch { /* absent */ }
+  }
+  return found;
+}
+function unstick(repoPath, opts = {}) {
+  let only = null;
+  if (repoPath) { try { only = resolveRepo(repoPath).primary; } catch (e) { return refusal(e.message); } }
+  const expired = [];
+  const swept = sweepClaims({ ...opts, config: settings(opts), now: stamp(opts), readOnly: Boolean(opts.dryRun), onlyRepo: only,
+    report: (code, _level, _repo, _message, _fix, extra) => { if (code === "claim-stale" && extra?.id) expired.push(extra.id); } });
+  if (swept?.skipped) return refusal(`claims store busy (${swept.skipped}); retry in a moment`);
+  const claims = listClaims(opts).filter(c => !only || c.repo === only);
+  const repos = [...new Set([...(only ? [only] : []), ...claims.map(c => c.repo)])];
+  const running = gitRunning(opts), locks = [], keptLocks = [];
+  for (const repo of repos) for (const file of staleGitLocks(repo, opts)) {
+    if (running !== false || opts.dryRun) { keptLocks.push({ file, reason: opts.dryRun ? "dry run" : running ? "a git process is running" : "could not check for running git processes" }); continue; }
+    try { fs.unlinkSync(file); locks.push(file); } catch (e) { keptLocks.push({ file, reason: errorText(e) }); }
+  }
+  const held = claims.filter(c => c.status === "active" && !expired.includes(c.id)).map(c => ({
+    id: c.id, actor: c.actor, session: c.session, worktree: c.worktree, ageHours: c.ageHours,
+    next: fs.existsSync(c.worktree) ? `if that session is still working, leave it (it expires after ${settings(opts).staleClaimHours ?? 8} idle hours); if it is done, git-manager finish ${c.id}; if it is gone, git-manager release ${c.id} (unmerged work is archived first)` : `its worktree is gone: git-manager release ${c.id} (unmerged commits are archived first)`,
+  }));
+  return { ok: true, dryRun: Boolean(opts.dryRun), expired, locksRemoved: locks, locksKept: keptLocks, held };
+}
+const BLOCKED_BY_CLAIM = /^(path overlap with claim |task already claimed by )/;
+const heldByClaim = (result) => !result.ok && (result.reasons || []).length > 0 && result.reasons.every(r => BLOCKED_BY_CLAIM.test(r));
+
+module.exports = { unstick, heldByClaim, staleGitLocks, enforcedRepoInputs, sweep,resolveClaim, actor, sessionLabel, defaultOwnerPrefix, resolveRepo, ownerFor, loadClaims, withClaimsLock, health, collisions, start, finish, release, listClaims, claimActivity, sweepClaims, unclaimedCommitFindings, scopeAuditBase };
