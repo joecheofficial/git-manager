@@ -20,6 +20,7 @@ function printUsage() {
       "  git-manager amend-scope <claim-id> --paths a,b [--session <host-session>] [--dry-run] [--json]",
       "  git-manager claims [--all] [--json]",
       "  git-manager sweep [--read-only] [--json]",
+      "  git-manager unstick [<repo>] [--dry-run] [--json]",
       "",
       "Git Manager checks you in before you edit: a branch and worktree per task, so two sessions never clobber each other. Merge, never rebase.",
       "",
@@ -64,13 +65,24 @@ async function runCheckin(command, args) {
     let result;
     if (command === "start") {
       const repoPath = positional[0] || process.cwd();
-      result = await withRepoProbe(repoPath, () => {
+      const attempt = () => withRepoProbe(repoPath, () => {
         let primary = repoPath;
         try { primary = checkin.resolveRepo(repoPath).primary; } catch { /* underlying lifecycle reports invalid repos */ }
         return programBoundaries.policyFor(primary, programBoundaries.loadSettings(opts))
           ? programBoundaries.guardedStart(repoPath, opts) : checkin.start(repoPath, opts);
       });
+      result = await attempt();
+      // Held only by another claim: expire claims from sessions idle past staleClaimHours
+      // and clear orphaned git locks, then try once more. A live claim still holds.
+      if (checkin.heldByClaim(result) && !opts.dryRun) {
+        const freed = checkin.unstick(repoPath, {});
+        if (freed.ok && (freed.expired.length || freed.locksRemoved.length)) {
+          result = await attempt();
+          result.warnings = [...(result.warnings || []), `auto-unstick: expired ${freed.expired.length} stale claim(s)${freed.expired.length ? ` (${freed.expired.join(", ")})` : ""}, removed ${freed.locksRemoved.length} orphaned git lock(s)`];
+        }
+      }
     }
+    else if (command === "unstick") result = checkin.unstick(positional[0] || null, opts);
     else if (command === "claims") result = { ok: true, claims: checkin.listClaims(opts) };
     else if (command === "sweep") {
       if (positional.length) throw new Error("sweep takes no repository or claim; it covers the claims store and checkin.enforcedRepos");
@@ -115,6 +127,13 @@ async function runCheckin(command, args) {
         const c = result.claims;
         lines.push(`${result.readOnly ? "sweep preview (read-only, nothing changed)" : "sweep"}: ${c && !c.skipped ? `${c.active} active, ${c.expired} expired, ${c.closed} closed` : "claims not swept"}; ${result.repos.length} enforced repo(s) checked`);
         for (const f of result.findings) lines.push(`${f.level}: ${f.code}: ${f.message}${f.fix ? ` (next: ${f.fix})` : ""}`);
+      } else if (command === "unstick") {
+        lines.push(`${result.dryRun ? "unstick preview (nothing changed)" : "unstick"}: ${result.expired.length} stale claim(s) ${result.dryRun ? "would expire" : "expired"}, ${result.locksRemoved.length} orphaned git lock(s) removed`);
+        for (const id of result.expired) lines.push(`expired: ${id}`);
+        for (const l of result.locksRemoved) lines.push(`lock removed: ${l}`);
+        for (const l of result.locksKept) lines.push(`lock kept: ${l.file} (${l.reason})`);
+        for (const c of result.held) lines.push(`still held: ${c.id} ${c.actor}/${c.session}; next: ${c.next}`);
+        if (!result.held.length) lines.push("nothing is holding claims now");
       } else if (command === "claims") lines.push(...result.claims.map(c => `${c.id} ${c.status} ${c.actor}/${c.session} ${Number.isFinite(c.ageHours) ? `${c.ageHours.toFixed(1)}h` : "activity unknown, held"} ${c.worktree}`));
       else if (command === "amend-scope") lines.push(`${result.dryRun ? "preview" : "scope amended"}: ${result.claim.id}`, `paths: ${(result.amendment.paths || []).join(", ")}`);
       else {
@@ -141,7 +160,7 @@ async function main(argv = process.argv.slice(2)) {
     printUsage();
     return;
   }
-  if (["start", "finish", "release", "claims", "amend-scope", "sweep"].includes(command)) {
+  if (["start", "finish", "release", "claims", "amend-scope", "sweep", "unstick"].includes(command)) {
     await runCheckin(command, rest);
     return;
   }
